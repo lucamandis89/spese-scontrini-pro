@@ -8,7 +8,7 @@
     dbName: "spese_scontrini_pro_db",
     dbVersion: 1,
     store: "expenses",
-    settingsKey: "ssp_settings_v1",
+    settingsKey: "ssp_settings_v2",
     freeLimitExpenses: 30,
     freeLimitPdfPerMonth: 3,
     photoMaxSide: 1400,
@@ -52,31 +52,69 @@
     const dt = new Date();
     return `${dt.getFullYear()}-${pad2(dt.getMonth()+1)}`;
   }
-  function loadSettings(){
-    try{ return JSON.parse(localStorage.getItem(APP.settingsKey) || "{}"); }
-    catch{ return {}; }
+  function safeJSONParse(s, fallback){
+    try{ return JSON.parse(s); } catch { return fallback; }
   }
-  function saveSettings(s){
-    localStorage.setItem(APP.settingsKey, JSON.stringify(s || {}));
+
+  // Toast
+  function toast(msg){
+    const host = $("#toastHost");
+    if(!host) return;
+    const t = document.createElement("div");
+    t.className = "toast";
+    t.textContent = msg;
+    host.appendChild(t);
+    setTimeout(() => t.remove(), 2800);
   }
-  function escapeHtml(s){
-    return String(s ?? "").replace(/[&<>"']/g, m => ({
-      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
-    }[m]));
+
+  // Tiny haptic (non rompe nulla: se non supportato, ignora)
+  function haptic(ms=12){
+    try{ if(navigator.vibrate) navigator.vibrate(ms); } catch {}
   }
 
   // ----------------------------
-  // SETTINGS (FREE / PRO)
+  // SETTINGS (FREE / PRO + UI state)
   // ----------------------------
-  const settings = loadSettings();
-  settings.isPro = !!settings.isPro; // toggle test
+  const settings = safeJSONParse(localStorage.getItem(APP.settingsKey) || "{}", {});
+  settings.isPro = !!settings.isPro;
   settings.pdfCountByMonth = settings.pdfCountByMonth || {};
-  saveSettings(settings);
+  settings.activePage = settings.activePage || "dash";
+  localStorage.setItem(APP.settingsKey, JSON.stringify(settings));
+
+  function saveSettings(){
+    local so = JSON.stringify(settings);
+    localStorage.setItem(APP.settingsKey, so);
+  }
 
   function setProUI(){
     $("#proState").textContent = settings.isPro ? "PRO" : "FREE";
     $("#proPill").style.borderColor = settings.isPro ? "rgba(61,220,151,.5)" : "rgba(255,204,102,.35)";
-    $("#freeHint").style.display = settings.isPro ? "none" : "block";
+    const fh = $("#freeHint");
+    if(fh) fh.style.display = settings.isPro ? "none" : "block";
+  }
+
+  // ----------------------------
+  // NAV
+  // ----------------------------
+  function setPage(name){
+    settings.activePage = name;
+    saveSettings();
+
+    document.querySelectorAll(".page").forEach(p => {
+      p.classList.toggle("active", p.getAttribute("data-page") === name);
+    });
+    document.querySelectorAll(".navBtn").forEach(b => {
+      b.classList.toggle("active", b.getAttribute("data-nav") === name);
+    });
+
+    const sub = $("#headerSubtitle");
+    if(sub){
+      sub.textContent =
+        name === "dash" ? "Offline • PDF • Foto scontrini • Backup" :
+        name === "archive" ? "Archivio • filtri e ricerca rapida" :
+        name === "reports" ? "Report • PDF mensile e CAF/ISEE" :
+        "Impostazioni • backup • reset • PRO";
+    }
   }
 
   // ----------------------------
@@ -144,8 +182,8 @@
   // ----------------------------
   async function fileToCompressedDataURL(file){
     if(!file) return null;
-
     const img = await fileToImage(file);
+
     const w = img.naturalWidth || img.width;
     const h = img.naturalHeight || img.height;
 
@@ -176,21 +214,20 @@
   // UI INIT
   // ----------------------------
   function fillCategories(){
-    const sel = $("#inCategory");
-    sel.innerHTML = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join("");
-
-    const f = $("#fCategory");
-    f.innerHTML = `<option value="">Tutte</option>` + CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join("");
+    $("#inCategory").innerHTML = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join("");
+    $("#fCategory").innerHTML = `<option value="">Tutte</option>` + CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join("");
   }
 
   function initDefaults(){
     $("#inDate").value = todayISO();
     $("#fMonth").value = monthNow();
+    const rm = $("#rMonth");
+    if(rm) rm.value = monthNow();
     $("#inCategory").value = "Alimentari";
   }
 
   // ----------------------------
-  // RENDER
+  // DATA + RENDER
   // ----------------------------
   let all = [];
 
@@ -200,7 +237,6 @@
     const q = ($("#fSearch").value || "").trim().toLowerCase();
 
     let list = all.slice();
-
     if(m) list = list.filter(x => x.month === m);
     if(c) list = list.filter(x => x.category === c);
     if(q){
@@ -218,13 +254,8 @@
     const mNow = monthNow();
     const yNow = String(new Date().getFullYear());
 
-    const monthTotal = all
-      .filter(x => x.month === mNow)
-      .reduce((s,x) => s + (Number(x.amount)||0), 0);
-
-    const yearTotal = all
-      .filter(x => (x.date || "").startsWith(yNow + "-"))
-      .reduce((s,x) => s + (Number(x.amount)||0), 0);
+    const monthTotal = all.filter(x => x.month === mNow).reduce((s,x) => s + (Number(x.amount)||0), 0);
+    const yearTotal  = all.filter(x => (x.date || "").startsWith(yNow + "-")).reduce((s,x) => s + (Number(x.amount)||0), 0);
 
     $("#statMonth").textContent = euro(monthTotal);
     $("#statYear").textContent = euro(yearTotal);
@@ -240,7 +271,7 @@
     $("#sumLabel").textContent = `Totale filtro: ${euro(total)}`;
 
     if(list.length === 0){
-      el.innerHTML = `<div class="hint">Nessuna spesa nei filtri selezionati. Premi <b>➕ Aggiungi spesa</b> a sinistra.</div>`;
+      el.innerHTML = `<div class="hint">Nessuna spesa nei filtri selezionati. Premi “+” per aggiungere.</div>`;
       return;
     }
 
@@ -281,13 +312,16 @@
     }
 
     el.querySelectorAll("[data-open]").forEach(btn => {
-      btn.addEventListener("click", () => openModal(btn.getAttribute("data-open")));
+      btn.addEventListener("click", () => openDetails(btn.getAttribute("data-open")));
     });
   }
 
-  // ----------------------------
-  // CRUD
-  // ----------------------------
+  function escapeHtml(s){
+    return String(s ?? "").replace(/[&<>"']/g, m => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+    }[m]));
+  }
+
   async function refresh(){
     all = await dbGetAll();
     calcStats();
@@ -295,6 +329,86 @@
     setProUI();
   }
 
+  // ----------------------------
+  // MODALS
+  // ----------------------------
+  function showModal(id){ $(id).classList.add("show"); }
+  function hideModal(id){ $(id).classList.remove("show"); }
+
+  // Add/Edit state
+  let editId = null;
+
+  function openAddModal(prefCategory){
+    editId = null;
+    $("#addTitle").textContent = "➕ Aggiungi spesa";
+    $("#btnSave").textContent = "✅ Salva";
+    $("#inAmount").value = "";
+    $("#inNote").value = "";
+    $("#inPhoto").value = "";
+    $("#inDate").value = todayISO();
+    if(prefCategory && CATEGORIES.includes(prefCategory)) $("#inCategory").value = prefCategory;
+    showModal("#modalAdd");
+    haptic();
+  }
+
+  function closeAddModal(){
+    hideModal("#modalAdd");
+  }
+
+  // Details modal
+  let modalCurrentId = null;
+
+  function openDetails(id){
+    const x = all.find(e => e.id === id);
+    if(!x) return;
+    modalCurrentId = id;
+
+    $("#mTitle").textContent = `${x.note || "Spesa"} • ${euro(x.amount)}`;
+    $("#mImg").src = x.photo || "";
+    $("#mImg").style.display = x.photo ? "block" : "none";
+
+    showModal("#modalDetails");
+    haptic();
+  }
+
+  function closeDetails(){
+    hideModal("#modalDetails");
+    modalCurrentId = null;
+  }
+
+  async function deleteCurrent(){
+    if(!modalCurrentId) return;
+    const ok = confirm("Eliminare questa spesa?");
+    if(!ok) return;
+    await dbDelete(modalCurrentId);
+    closeDetails();
+    await refresh();
+    toast("Eliminata ✅");
+    haptic(18);
+  }
+
+  function openEditFromDetails(){
+    if(!modalCurrentId) return;
+    const x = all.find(e => e.id === modalCurrentId);
+    if(!x) return;
+
+    editId = x.id;
+    $("#addTitle").textContent = "✏️ Modifica spesa";
+    $("#btnSave").textContent = "✅ Aggiorna";
+
+    $("#inAmount").value = String(x.amount).replace(".", ",");
+    $("#inDate").value = x.date;
+    $("#inCategory").value = x.category;
+    $("#inNote").value = x.note || "";
+    $("#inPhoto").value = ""; // non ricarichiamo la foto file input
+
+    closeDetails();
+    showModal("#modalAdd");
+  }
+
+  // ----------------------------
+  // SAVE / UPDATE
+  // ----------------------------
   async function onSave(){
     const amount = parseEuro($("#inAmount").value);
     const date = $("#inDate").value;
@@ -311,14 +425,21 @@
       return;
     }
 
-    if(!settings.isPro){
+    // Limite FREE solo su NUOVA spesa (non su modifica)
+    if(!settings.isPro && !editId){
       if(all.length >= APP.freeLimitExpenses){
         alert(`Versione FREE: massimo ${APP.freeLimitExpenses} spese. Attiva PRO per spese illimitate.`);
         return;
       }
     }
 
-    let photo = null;
+    // Se modifica: recupero record esistente
+    let base = null;
+    if(editId){
+      base = all.find(x => x.id === editId) || null;
+    }
+
+    let photo = base ? (base.photo || null) : null;
     try{
       if(file) photo = await fileToCompressedDataURL(file);
     }catch{
@@ -326,8 +447,7 @@
       return;
     }
 
-    const id = (crypto && crypto.randomUUID) ? crypto.randomUUID()
-      : String(Date.now()) + "_" + Math.random().toString(16).slice(2);
+    const id = editId || ((crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2));
 
     const item = {
       id,
@@ -341,11 +461,12 @@
 
     await dbPut(item);
 
-    $("#inAmount").value = "";
-    $("#inNote").value = "";
-    $("#inPhoto").value = "";
+    closeAddModal();
+    editId = null;
 
     await refresh();
+    toast("Salvato ✅");
+    haptic(14);
   }
 
   async function onWipeAll(){
@@ -353,38 +474,9 @@
     if(!ok) return;
     await dbClear();
     settings.pdfCountByMonth = {};
-    saveSettings(settings);
+    saveSettings();
     await refresh();
-  }
-
-  // ----------------------------
-  // MODAL
-  // ----------------------------
-  let modalCurrentId = null;
-
-  function openModal(id){
-    const x = all.find(e => e.id === id);
-    if(!x) return;
-
-    modalCurrentId = id;
-    $("#mTitle").textContent = `${x.note || "Spesa"} • ${euro(x.amount)}`;
-    $("#mImg").src = x.photo || "";
-    $("#mImg").style.display = x.photo ? "block" : "none";
-    $("#modal").classList.add("show");
-  }
-
-  function closeModal(){
-    $("#modal").classList.remove("show");
-    modalCurrentId = null;
-  }
-
-  async function deleteCurrent(){
-    if(!modalCurrentId) return;
-    const ok = confirm("Eliminare questa spesa?");
-    if(!ok) return;
-    await dbDelete(modalCurrentId);
-    closeModal();
-    await refresh();
+    toast("Reset completato ✅");
   }
 
   // ----------------------------
@@ -392,7 +484,6 @@
   // ----------------------------
   function canGeneratePdf(){
     if(settings.isPro) return true;
-
     const m = monthNow();
     const used = Number(settings.pdfCountByMonth[m] || 0);
     if(used >= APP.freeLimitPdfPerMonth){
@@ -405,23 +496,21 @@
   function incPdfCount(){
     const m = monthNow();
     settings.pdfCountByMonth[m] = Number(settings.pdfCountByMonth[m] || 0) + 1;
-    saveSettings(settings);
+    saveSettings();
   }
 
-  async function generatePdf(mode){
+  async function generatePdf(mode, targetMonth){
     if(!window.jspdf || !window.jspdf.jsPDF){
       alert("PDF non disponibile (jsPDF non caricato). Se vuoi offline 100%, metti jsPDF in locale.");
       return;
     }
     if(!canGeneratePdf()) return;
 
-    const targetMonth = $("#fMonth").value || monthNow();
-
     let list = all.filter(x => x.month === targetMonth);
     if(mode === "caf") list = list.filter(x => CAF_CATEGORIES.has(x.category));
 
     if(list.length === 0){
-      alert("Nessuna spesa trovata per questo PDF (controlla mese/filtri).");
+      alert("Nessuna spesa trovata per questo PDF.");
       return;
     }
 
@@ -534,6 +623,8 @@
 
     const fileName = mode === "caf" ? `Report_CAF_${targetMonth}.pdf` : `Report_Mese_${targetMonth}.pdf`;
     doc.save(fileName);
+    toast("PDF creato ✅");
+    haptic(16);
   }
 
   // ----------------------------
@@ -542,7 +633,7 @@
   async function exportBackup(){
     const payload = {
       app: "Spese&ScontriniPRO",
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       settings,
       expenses: all
@@ -557,19 +648,21 @@
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+
+    toast("Backup esportato ✅");
   }
 
   async function importBackup(file){
     try{
       const txt = await file.text();
-      const payload = JSON.parse(txt);
+      const payload = safeJSONParse(txt, null);
 
       if(!payload || !Array.isArray(payload.expenses)){
         alert("Backup non valido.");
         return;
       }
 
-      const ok = confirm("Importare backup? Questa operazione unisce le spese (non cancella automaticamente quelle esistenti).");
+      const ok = confirm("Importare backup? Unisce le spese (non cancella quelle esistenti).");
       if(!ok) return;
 
       const existing = new Set(all.map(x => x.id));
@@ -594,11 +687,12 @@
 
       if(payload.settings && typeof payload.settings === "object"){
         settings.pdfCountByMonth = payload.settings.pdfCountByMonth || settings.pdfCountByMonth;
-        saveSettings(settings);
+        saveSettings();
       }
 
       await refresh();
-      alert(`Backup importato. Nuove spese aggiunte: ${added}`);
+      toast(`Import OK (+${added}) ✅`);
+      haptic(16);
     }catch{
       alert("Errore import backup: file non valido.");
     }
@@ -607,54 +701,87 @@
   // ----------------------------
   // EVENTS
   // ----------------------------
-  $("#btnSave").addEventListener("click", onSave);
-  $("#btnClear").addEventListener("click", () => {
-    $("#inAmount").value = "";
-    $("#inNote").value = "";
-    $("#inPhoto").value = "";
-  });
-  $("#btnWipeAll").addEventListener("click", onWipeAll);
+  function wire(){
+    // Nav
+    document.querySelectorAll(".navBtn").forEach(b => {
+      b.addEventListener("click", () => { setPage(b.getAttribute("data-nav")); haptic(8); });
+    });
 
-  $("#fMonth").addEventListener("change", renderList);
-  $("#fCategory").addEventListener("change", renderList);
-  $("#fSearch").addEventListener("input", () => {
-    clearTimeout(window.__t);
-    window.__t = setTimeout(renderList, 120);
-  });
+    // FAB + quick chips
+    $("#fabAdd").addEventListener("click", () => openAddModal());
+    document.querySelectorAll("[data-quick-cat]").forEach(c => {
+      c.addEventListener("click", () => openAddModal(c.getAttribute("data-quick-cat")));
+    });
 
-  $("#btnClearFilters").addEventListener("click", () => {
-    $("#fMonth").value = monthNow();
-    $("#fCategory").value = "";
-    $("#fSearch").value = "";
-    renderList();
-  });
-  $("#btnToday").addEventListener("click", () => {
-    $("#inDate").value = todayISO();
-  });
+    // shortcuts dashboard
+    $("#btnGoArchive").addEventListener("click", () => setPage("archive"));
+    $("#btnGoReports").addEventListener("click", () => setPage("reports"));
 
-  $("#btnPdfMonth").addEventListener("click", () => generatePdf("month"));
-  $("#btnPdfCAF").addEventListener("click", () => generatePdf("caf"));
+    // Filters
+    $("#fMonth").addEventListener("change", renderList);
+    $("#fCategory").addEventListener("change", renderList);
+    $("#fSearch").addEventListener("input", () => {
+      clearTimeout(window.__t);
+      window.__t = setTimeout(renderList, 120);
+    });
+    $("#btnClearFilters").addEventListener("click", () => {
+      $("#fMonth").value = monthNow();
+      $("#fCategory").value = "";
+      $("#fSearch").value = "";
+      renderList();
+      toast("Filtri puliti");
+    });
 
-  $("#btnBackup").addEventListener("click", exportBackup);
-  $("#inRestore").addEventListener("change", (e) => {
-    const f = e.target.files && e.target.files[0];
-    if(f) importBackup(f);
-    e.target.value = "";
-  });
+    // Add modal
+    $("#addClose").addEventListener("click", closeAddModal);
+    $("#modalAdd").addEventListener("click", (e) => {
+      if(e.target === $("#modalAdd")) closeAddModal();
+    });
 
-  $("#mClose").addEventListener("click", closeModal);
-  $("#modal").addEventListener("click", (e) => {
-    if(e.target === $("#modal")) closeModal();
-  });
-  $("#mDelete").addEventListener("click", deleteCurrent);
+    $("#btnSave").addEventListener("click", onSave);
+    $("#btnClear").addEventListener("click", () => {
+      $("#inAmount").value = "";
+      $("#inNote").value = "";
+      $("#inPhoto").value = "";
+      toast("Pulito");
+    });
 
-  $("#btnProToggle").addEventListener("click", () => {
-    const ok = confirm(settings.isPro ? "Disattivare PRO (test)?" : "Attivare PRO (test) sul dispositivo?");
-    if(!ok) return;
-    settings.isPro = !settings.isPro;
-    saveSettings(settings);
-    setProUI();
-  });
+    // Details modal
+    $("#mClose").addEventListener("click", closeDetails);
+    $("#modalDetails").addEventListener("click", (e) => {
+      if(e.target === $("#modalDetails")) closeDetails();
+    });
+    $("#mDelete").addEventListener("click", deleteCurrent);
+    $("#mEdit").addEventListener("click", openEditFromDetails);
+
+    // Settings
+    $("#btnWipeAll").addEventListener("click", onWipeAll);
+
+    $("#btnBackup").addEventListener("click", exportBackup);
+    $("#inRestore").addEventListener("change", (e) => {
+      const f = e.target.files && e.target.files[0];
+      if(f) importBackup(f);
+      e.target.value = "";
+    });
+
+    $("#btnProToggle").addEventListener("click", () => {
+      const ok = confirm(settings.isPro ? "Disattivare PRO (test)?" : "Attivare PRO (test) sul dispositivo?");
+      if(!ok) return;
+      settings.isPro = !settings.isPro;
+      saveSettings();
+      setProUI();
+      toast(settings.isPro ? "PRO attivo ✅" : "FREE attivo");
+      haptic(14);
+    });
+
+    // Reports
+    $("#btnMakePdf").addEventListener("click", () => {
+      const m = ($("#rMonth").value || monthNow());
+      const mode = $("#rMode").value || "month";
+      generatePdf(mode, m);
+    });
+    $("#btnOpenBackup").addEventListener("click", () => setPage("settings"));
+  }
 
   // ----------------------------
   // SERVICE WORKER
@@ -672,8 +799,14 @@
     fillCategories();
     initDefaults();
     setProUI();
+
+    // Page initial
+    setPage(settings.activePage || "dash");
+
     await openDB();
     await refresh();
+
+    wire();
   })();
 
 })();
