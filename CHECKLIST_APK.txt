@@ -1,0 +1,14 @@
+CHECKLIST PRIMA DI CREARE APK (2 minuti)
+
+1) Aggiungi una spesa con foto + scanner -> OK
+2) Crea un'entrata -> OK
+3) Export PDF mese -> OK
+4) Export CSV -> OK
+5) Ricorrenti: crea e verifica generazione -> OK
+6) Conti: saldo cambia correttamente -> OK
+7) Documenti: crea con scadenza -> OK
+8) Report: Analisi categorie + Coppia -> OK
+9) NFC scorciatoie (se supportato) -> OK
+10) Import banca da testo (toggle ON) -> OK
+
+Se uno di questi fallisce: controlla che sw.js e manifest.webmanifest siano in root e che icons siano in assets/.
