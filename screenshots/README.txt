@@ -1,1 +1,1 @@
-screenshots/README.txt
+Screenshots app
