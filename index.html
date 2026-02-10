@@ -10,166 +10,260 @@
   <link rel="icon" href="./assets/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./style.css">
 
-  <!-- jsPDF (PDF). Il service worker prova a metterlo in cache -->
+  <!-- jsPDF (PDF). Il SW prova a metterlo in cache -->
   <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
   <script defer src="./app.js"></script>
 </head>
 <body>
 
-<header>
-  <div class="wrap">
-    <div class="topbar">
-      <div class="brand">
-        <div class="logo" aria-hidden="true"></div>
-        <div>
-          <h1>Spese & Scontrini <span class="muted">PRO</span></h1>
-          <p>Offline • PDF • Foto scontrini • Backup</p>
-        </div>
+<header class="appHeader">
+  <div class="wrap topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true"></div>
+      <div>
+        <h1>Spese & Scontrini <span class="muted">PRO</span></h1>
+        <p id="headerSubtitle">Offline • PDF • Foto scontrini • Backup</p>
       </div>
-      <div class="pill" id="proPill">Stato: <b id="proState">FREE</b> • Limiti attivi</div>
     </div>
+
+    <div class="pill" id="proPill">Stato: <b id="proState">FREE</b></div>
   </div>
 </header>
 
-<main>
-  <div class="grid">
+<main class="appMain">
+  <!-- PAGES -->
+  <section class="page" data-page="dash">
+    <div class="wrap pageInner">
+      <div class="hero">
+        <div class="heroCard">
+          <div class="heroTitle">Dashboard</div>
+          <div class="heroSub">Totali e controllo rapido</div>
 
-    <!-- LEFT: Add expense + stats -->
-    <section class="card">
-      <div class="hd">
-        <div>
-          <h2>Dashboard</h2>
-          <div class="sub">Totali e inserimento rapido</div>
+          <div class="stats">
+            <div class="stat">
+              <div class="k">Totale mese</div>
+              <div class="v" id="statMonth">€ 0,00</div>
+            </div>
+            <div class="stat">
+              <div class="k">Totale anno</div>
+              <div class="v" id="statYear">€ 0,00</div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="quickRow">
+            <button class="btn primary" id="btnGoArchive">📂 Archivio</button>
+            <button class="btn" id="btnGoReports">📄 Report</button>
+          </div>
+
+          <div class="hint" id="freeHint">
+            Versione <b>FREE</b>: massimo <b>30</b> spese e <b>3</b> PDF al mese. PDF con watermark.
+          </div>
         </div>
-        <button class="btn small" id="btnProToggle" title="Per test: attiva/disattiva PRO localmente">
-          ✨ Test PRO
-        </button>
+
+        <div class="heroCard soft">
+          <div class="heroTitle">Aggiunta veloce</div>
+          <div class="heroSub">Tocca il “+” in basso per inserire una spesa in 10 secondi.</div>
+
+          <div class="miniTips">
+            <div class="chip" data-quick-cat="Alimentari">🍝 Alimentari</div>
+            <div class="chip" data-quick-cat="Benzina">⛽ Benzina</div>
+            <div class="chip" data-quick-cat="Farmacia / Mediche">💊 Farmacia</div>
+            <div class="chip" data-quick-cat="Casa">🏠 Casa</div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="muted small">
+            Suggerimento: allega la foto scontrino solo quando serve (riduce peso e resta più veloce).
+          </div>
+        </div>
       </div>
+    </div>
+  </section>
 
-      <div class="bd">
-        <div class="stats">
-          <div class="stat">
-            <div class="k">Totale mese</div>
-            <div class="v" id="statMonth">€ 0,00</div>
+  <section class="page" data-page="archive">
+    <div class="wrap pageInner">
+      <div class="card">
+        <div class="toolbar">
+          <div class="field small">
+            <label class="toolbarLabel">Mese</label>
+            <input id="fMonth" type="month" />
           </div>
-          <div class="stat">
-            <div class="k">Totale anno</div>
-            <div class="v" id="statYear">€ 0,00</div>
+          <div class="field">
+            <label class="toolbarLabel">Categoria</label>
+            <select id="fCategory"></select>
+          </div>
+          <div class="field">
+            <label class="toolbarLabel">Cerca</label>
+            <input id="fSearch" placeholder="es: benzina / farmacia / scuola..." />
+          </div>
+
+          <div class="right-actions">
+            <button class="btn small" id="btnClearFilters">🧼 Filtri</button>
           </div>
         </div>
 
-        <div class="divider"></div>
+        <div class="bd">
+          <div class="notice">
+            Tocca “Dettagli” per vedere la foto e gestire la spesa.
+          </div>
 
-        <h2 class="sectionTitle">➕ Aggiungi spesa</h2>
+          <div class="listHeader">
+            <div class="muted" id="countLabel">0 spese</div>
+            <div class="muted" id="sumLabel">Totale filtro: € 0,00</div>
+          </div>
 
-        <div class="two">
+          <div class="list" id="list"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" data-page="reports">
+    <div class="wrap pageInner">
+      <div class="card">
+        <div class="hd">
           <div>
-            <label>Importo (€)</label>
-            <input id="inAmount" inputmode="decimal" placeholder="es: 12,50" />
+            <h2>Report</h2>
+            <div class="sub">PDF mensile e PDF CAF/ISEE</div>
           </div>
+        </div>
+
+        <div class="bd">
+          <div class="two">
+            <div>
+              <label>Mese report</label>
+              <input id="rMonth" type="month" />
+            </div>
+            <div>
+              <label>Modalità</label>
+              <select id="rMode">
+                <option value="month">Report Mensile</option>
+                <option value="caf">Report CAF/ISEE</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <button class="btn primary" id="btnMakePdf">📄 Genera PDF</button>
+            <button class="btn" id="btnOpenBackup">⬇️ Backup / Ripristino</button>
+          </div>
+
+          <div class="hint">
+            In FREE il PDF ha watermark e limite mensile. In PRO è illimitato.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" data-page="settings">
+    <div class="wrap pageInner">
+      <div class="card">
+        <div class="hd">
           <div>
-            <label>Data</label>
-            <input id="inDate" type="date" />
+            <h2>Impostazioni</h2>
+            <div class="sub">Backup, PRO (test), reset</div>
           </div>
         </div>
 
-        <label>Categoria</label>
-        <select id="inCategory"></select>
+        <div class="bd">
+          <div class="row">
+            <button class="btn ok" id="btnProToggle">✨ Test PRO</button>
+            <button class="btn" id="btnBackup">⬇️ Esporta backup</button>
 
-        <label>Descrizione</label>
-        <input id="inNote" placeholder="es: Spesa supermercato / Farmacia / Benzina..." />
-
-        <label>Foto scontrino (opzionale)</label>
-        <input id="inPhoto" type="file" accept="image/*" />
-
-        <div class="row" style="margin-top:12px">
-          <button class="btn ok" id="btnSave">✅ Salva</button>
-          <button class="btn" id="btnClear">🧽 Pulisci</button>
-          <button class="btn bad" id="btnWipeAll" title="Cancella tutto (con conferma)">🗑️ Reset</button>
-        </div>
-
-        <div class="hint" id="freeHint">
-          Versione <b>FREE</b>: massimo <b>30</b> spese e <b>3</b> PDF al mese. Il PDF include watermark.
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="row">
-          <button class="btn primary" id="btnPdfMonth">📄 PDF Mese</button>
-          <button class="btn warn" id="btnPdfCAF">🧾 PDF CAF/ISEE</button>
-        </div>
-
-        <div class="hint">
-          Backup: esporta/importa per non perdere dati cambiando telefono.
-          <div style="margin-top:8px" class="row">
-            <button class="btn small" id="btnBackup">⬇️ Esporta backup</button>
-            <label class="btn small" style="cursor:pointer">
+            <label class="btn" style="cursor:pointer">
               ⬆️ Importa backup
               <input id="inRestore" type="file" accept="application/json" style="display:none">
             </label>
           </div>
-        </div>
 
-      </div>
-    </section>
+          <div class="divider"></div>
 
-    <!-- RIGHT: archive -->
-    <section class="card">
-      <div class="toolbar">
-        <div class="field small">
-          <label class="toolbarLabel">Mese</label>
-          <input id="fMonth" type="month" />
-        </div>
-        <div class="field">
-          <label class="toolbarLabel">Categoria</label>
-          <select id="fCategory"></select>
-        </div>
-        <div class="field">
-          <label class="toolbarLabel">Cerca</label>
-          <input id="fSearch" placeholder="es: benzina / farmacia / scuola..." />
-        </div>
+          <div class="row">
+            <button class="btn bad" id="btnWipeAll">🗑️ Reset totale</button>
+          </div>
 
-        <div class="right-actions">
-          <button class="btn small" id="btnToday">📅 Oggi</button>
-          <button class="btn small" id="btnClearFilters">🧼 Filtri</button>
+          <div class="hint">
+            Versione: <b>1.0</b> • Offline-first • Dati salvati sul dispositivo (IndexedDB).
+          </div>
         </div>
       </div>
+    </div>
+  </section>
 
-      <div class="bd">
-        <div class="notice" id="notice">
-          Suggerimento: usa <span class="kbd">Mese</span> + <span class="kbd">Categoria</span> per trovare subito le spese.
-        </div>
+  <!-- FAB -->
+  <button class="fab" id="fabAdd" aria-label="Aggiungi spesa">＋</button>
 
-        <div class="listHeader">
-          <div class="muted" id="countLabel">0 spese</div>
-          <div class="muted" id="sumLabel">Totale filtro: € 0,00</div>
-        </div>
+  <!-- Bottom Nav -->
+  <nav class="bottomNav" aria-label="Navigazione">
+    <button class="navBtn" data-nav="dash">🏠<span>Home</span></button>
+    <button class="navBtn" data-nav="archive">📂<span>Archivio</span></button>
+    <button class="navBtn" data-nav="reports">📄<span>Report</span></button>
+    <button class="navBtn" data-nav="settings">⚙️<span>Impost.</span></button>
+  </nav>
 
-        <div class="list" id="list"></div>
-      </div>
-    </section>
-
-  </div>
 </main>
 
-<!-- Modal foto -->
-<div class="modal" id="modal">
+<!-- ADD/EDIT MODAL -->
+<div class="modal" id="modalAdd">
   <div class="box">
     <div class="mh">
-      <h3 id="mTitle">Anteprima</h3>
-      <button class="btn small" id="mClose">✖ Chiudi</button>
+      <h3 id="addTitle">➕ Aggiungi spesa</h3>
+      <button class="btn small" id="addClose">✖</button>
+    </div>
+    <div class="mb">
+      <div class="two">
+        <div>
+          <label>Importo (€)</label>
+          <input id="inAmount" inputmode="decimal" placeholder="es: 12,50" />
+        </div>
+        <div>
+          <label>Data</label>
+          <input id="inDate" type="date" />
+        </div>
+      </div>
+
+      <label>Categoria</label>
+      <select id="inCategory"></select>
+
+      <label>Descrizione</label>
+      <input id="inNote" placeholder="es: Spesa supermercato / Farmacia / Benzina..." />
+
+      <label>Foto scontrino (opzionale)</label>
+      <input id="inPhoto" type="file" accept="image/*" />
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn ok" id="btnSave">✅ Salva</button>
+        <button class="btn" id="btnClear">🧽 Pulisci</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DETAILS MODAL -->
+<div class="modal" id="modalDetails">
+  <div class="box">
+    <div class="mh">
+      <h3 id="mTitle">Dettagli</h3>
+      <button class="btn small" id="mClose">✖</button>
     </div>
     <div class="mb">
       <img id="mImg" class="preview" alt="Anteprima scontrino">
       <div class="row" style="margin-top:12px; justify-content:space-between">
-        <button class="btn small bad" id="mDelete">🗑️ Elimina spesa</button>
-        <button class="btn small" id="mShareHint" disabled>🔒 Condivisione foto: via PDF</button>
+        <button class="btn small" id="mEdit">✏️ Modifica</button>
+        <button class="btn small bad" id="mDelete">🗑️ Elimina</button>
       </div>
-      <div class="hint">Per evitare bug e permessi strani su APK, la condivisione foto passa dal PDF.</div>
+      <div class="hint">Per evitare permessi strani su APK, la condivisione foto passa dal PDF.</div>
     </div>
   </div>
 </div>
+
+<!-- TOAST -->
+<div class="toastHost" id="toastHost" aria-live="polite" aria-atomic="true"></div>
 
 </body>
 </html>
