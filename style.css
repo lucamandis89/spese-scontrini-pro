@@ -1056,5 +1056,28 @@ hr, .divider{ opacity: .55 !important; }
   transition: transform .18s ease, opacity .18s ease;
 }
 @media (prefers-reduced-motion: reduce){
-  .page.slideAnim{ transition:none !important; }
+  .page.slideAnim{ transition:none !important; }12pxortantortant
+  /* =========================
+   HOTFIX: touch/click bloccati (SAFE)
+   ========================= */
+
+/* 1) Tutti i layer di sfondo NON devono mai prendere i tocchi */
+body::before, body::after,
+.bg, .background, .appBg, .ambient, .glow, .noise, .grain {
+  pointer-events: none !important;
+}
+
+/* 2) Backdrop/overlay: di default non prendono tocchi */
+#sheetBackdrop, #sspLoading, #sspDebug, .debugOverlay {
+  pointer-events: none !important;
+}
+
+/* 3) Solo quando sono "aperti" allora prendono tocchi */
+#sheetBackdrop.open, #sspLoading.show, #sspDebug.show, .debugOverlay.show {
+  pointer-events: auto !important;
+}
+
+/* 4) La app deve essere sempre cliccabile */
+main, .app, .container, #app {
+  pointer-events: auto !important;
 }
