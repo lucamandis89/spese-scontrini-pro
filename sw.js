@@ -1,33 +1,29 @@
-/* CACHE_KILL_SWITCH_V21_2
-   This service worker forces immediate updates and clears old caches.
+/* sw.js — CACHE KILL + SELF-UNREGISTER (v21.6)
+   Fix for stale/broken cached assets where UI renders but taps/buttons don't work.
 */
-const SW_VERSION = "v21.2";
-self.addEventListener("install", (event) => {
+const VERSION = "v21.6-kill";
+
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
+
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     try {
       const keys = await caches.keys();
-      await Promise.all(keys.map(k => caches.delete(k)));
+      await Promise.all(keys.map((k) => caches.delete(k)));
     } catch (e) {}
-    await self.clients.claim();
+
+    try { await self.registration.unregister(); } catch (e) {}
+
     try {
+      await self.clients.claim();
       const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      clients.forEach(c => c.postMessage({ type: "SW_UPDATED", version: SW_VERSION }));
+      for (const c of clients) {
+        try { c.postMessage({ type: "SW_KILLED", version: VERSION }); } catch (e) {}
+      }
     } catch (e) {}
   })());
 });
-self.addEventListener("fetch", (event) => {
-  const req = event.request;
-  if (req.method !== "GET") return;
-  event.respondWith((async () => {
-    try {
-      const fresh = await fetch(req, { cache: "no-store" });
-      return fresh;
-    } catch (e) {
-      const cached = await caches.match(req);
-      return cached || Response.error();
-    }
-  })());
-});
+
+// No fetch handler -> network default
