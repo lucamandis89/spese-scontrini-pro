@@ -1,0 +1,1127 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <meta name="theme-color" content="#0b1a12" />
+  <title>Spese & Scontrini PRO</title>
+
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+
+  <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script defer src="./app.js"></script>
+</head>
+
+<body>
+<header class="appHeader">
+  <div class="wrap topbar">
+    <div class="brand">
+      <div class="appIcon" aria-hidden="true"></div>
+      <div class="brandText">
+        <div class="title">Spese &amp; Scontrini <span class="muted">PRO</span></div>
+        <div class="subtitle" id="headerSubtitle">Offline • PDF • Foto scontrini • Backup</div>
+      </div>
+    </div>
+    <div class="pill">Stato: <b id="proState">FREE</b></div>
+  </div>
+</header>
+
+<main class="appMain">
+
+  <!-- HOME -->
+  <section class="page active" data-page="home">
+    <div class="wrap">
+      <div class="card">
+        <div class="hd">
+          <div>
+            <h2>Dashboard</h2>
+            <div class="sub">Totali + Budget</div>
+          </div>
+          <div class="row" style="gap:8px; justify-content:flex-end">
+            <select id="activeProfile" class="pillSelect" title="Profilo">
+              <!-- filled by JS -->
+            </select>
+            <button class="btn small" id="btnProToggle" type="button">✨ Test PRO</button>
+          </div>
+        </div>
+
+        <div class="bd">
+          <div class="stats">
+            <div class="stat">
+              <div class="k">Totale mese</div>
+              <div class="v" id="statMonth">€ 0,00</div>
+            </div>
+            <div class="stat">
+              <div class="k">Totale anno</div>
+              <div class="v" id="statYear">€ 0,00</div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- BUDGET -->
+          <div class="budgetCard">
+            <div class="budgetTop">
+              <div>
+                <div class="budgetTitle">Budget mensile</div>
+                <div class="budgetSub muted" id="budgetSub">Imposta un budget per vedere il progresso</div>
+              </div>
+              <button class="btn small" id="btnBudget" type="button">🎯 Imposta</button>
+            </div>
+
+            <div class="budgetBarWrap">
+              <div class="budgetBar" id="budgetBar"></div>
+            </div>
+            <div class="budgetRow muted">
+              <span id="budgetLeft">—</span>
+              <span id="budgetPct">—</span>
+            </div>
+          </div>
+          <div class="divider"></div>
+
+          <!-- ASSISTENTE RISPARMIO -->
+          <div class="assistCard">
+            <div class="assistTop">
+              <div>
+                <div class="assistTitle">Assistente risparmio</div>
+                <div class="muted" id="assistSub">Analisi smart offline sul mese corrente</div>
+              </div>
+              <button class="btn small" id="btnTips" type="button">💡 Consigli</button>
+            </div>
+            <div class="assistBody" id="assistBody">—</div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- SPESA VELOCE -->
+          <div class="quickCard">
+            <div class="quickTitle">⚡ Spesa veloce (1 tap)</div>
+            <div class="quickGrid" id="quickGrid"></div>
+            <div class="muted" style="margin-top:8px">Usa i pulsanti rapidi per inserire spese in 2 secondi.</div>
+          </div>
+
+
+          <div class="hint" id="freeHint" style="margin-top:12px">
+            Versione <b>FREE</b>: massimo <b>30</b> spese e <b>3</b> PDF al mese (PDF con watermark).
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="row">
+            <button class="btn primary" id="goArchive" type="button">📂 Vai in Archivio</button>
+            <button class="btn" id="goReport" type="button">📄 Vai in Report</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3 class="miniTitle">Portafogli</h3>
+          <div class="anaCard" style="margin-bottom:12px"><div class="anaList" id="walletsHome"></div></div>
+
+          <h3 class="miniTitle">Scadenze vicine</h3>
+          <div class="anaCard" style="margin-bottom:12px"><div class="anaList" id="docsSoonHome"></div></div>
+
+          <h3 class="miniTitle">Ultimi movimenti</h3>
+          <div class="list" id="recentList"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ARCHIVIO -->
+  <section class="page" data-page="archive">
+    <div class="wrap">
+      <div class="card">
+        <div class="toolbar">
+          <div class="field small">
+            <label class="toolbarLabel">Mese</label>
+            <input id="fMonth" type="month" />
+          </div>
+          <div class="field">
+            <label class="toolbarLabel">Categoria</label>
+            <select id="fCategory"></select>
+          </div>
+          <div class="field">
+            <label class="toolbarLabel">Profilo</label>
+            <select id="fProfile"></select>
+          </div>
+          <div class="field">
+            <label class="toolbarLabel">Cerca</label>
+            <input id="fSearch" placeholder="es: benzina / farmacia / scuola..." />
+          </div>
+
+          <div class="right-actions">
+            <div class="seg" role="group" aria-label="Vista archivio">
+              <button class="segBtn active" id="viewList" type="button">Lista</button>
+              <button class="segBtn" id="viewTimeline" type="button">Timeline</button>
+            </div>
+            <button class="btn small" id="btnClearFilters" type="button">🧼 Filtri</button>
+          </div>
+        </div>
+
+        <div class="bd">
+          <div class="notice">
+            Badge “Detraibile” appare sulle categorie CAF/ISEE.
+          </div>
+
+          <div class="listHeader">
+            <div class="muted" id="countLabel">0 spese</div>
+            <div class="muted" id="sumLabel">Totale filtro: € 0,00</div>
+          </div>
+
+          <div class="list" id="list"></div>
+          <div class="timeline" id="timeline" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- REPORT -->
+  <section class="page" data-page="report">
+    <div class="wrap">
+      <div class="card">
+        <div class="hd">
+          <div>
+            <h2>Report</h2>
+            <div class="sub">PDF + Analisi categorie</div>
+          </div>
+        </div>
+
+        <div class="bd">
+          <div class="two">
+            <div>
+              <label>Mese report</label>
+              <input id="rMonth" type="month" />
+            </div>
+            <div>
+              <label>Tipo report</label>
+              <select id="rMode">
+                <option value="month">Report Mensile</option>
+                <option value="caf">Report CAF/ISEE</option>
+              </select>
+            </div>
+          </div>
+
+          <label style="margin-top:10px">Profilo</label>
+          <select id="rProfile"></select>
+
+          <div class="row" style="margin-top:12px">
+            <button class="btn primary" id="btnMakePdf" type="button">📄 Genera PDF</button>
+                        <button class="btn" id="btnExportCsv" type="button">📊 Esporta CSV</button>
+<button class="btn" id="btnBackup" type="button">⬇️ Esporta backup</button>
+            <label class="btn" style="cursor:pointer">
+              ⬆️ Importa backup
+              <input id="inRestore" type="file" accept="application/json" style="display:none">
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          
+          <!-- ANALISI / GRAFICO -->
+          <div class="anaCard">
+            <div class="anaTop">
+              <div>
+                <div class="miniTitle" style="margin:0">Analisi categorie</div>
+                <div class="muted" style="font-size:12px">Bar chart + Top categorie</div>
+              </div>
+              <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+                <select id="anaProfile" style="min-width:180px"></select>
+                <label class="chip" title="Mostra solo categorie detraibili">
+                  <input id="anaOnlyCaf" type="checkbox">
+                  <span>Solo detraibili</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="anaBars" id="anaBars"></div>
+            <div class="anaList" id="anaList"></div>
+          </div>
+
+          <div class="divider"></div>
+<div class="anaCard" id="coupleCard">
+            <div class="anaTop">
+              <div>
+                <div class="miniTitle" style="margin:0">🤝 Coppia / Coinquilini</div>
+                <div class="muted" style="font-size:12px">Chi deve cosa (mese selezionato)</div>
+              </div>
+              <div class="chip" id="coupleWho"><span>—</span></div>
+            </div>
+
+            <div class="anaList">
+              <div class="anaLine"><div><b>Hai pagato per <span id="partnerLabel3">Partner</span></b></div><div class="muted" id="minePaidForPartner">€ 0,00</div></div>
+              <div class="anaLine"><div><b><span id="partnerLabel4">Partner</span> ha pagato per te</b></div><div class="muted" id="partnerPaidForMe">€ 0,00</div></div>
+              <div class="anaLine"><div><b>Saldo (chi deve)</b></div><div class="muted" id="coupleNet">—</div></div>
+            </div>
+
+            <div class="hint" style="margin-top:10px">
+              Imposta il nome in Impostazioni. Le entrate non entrano nel calcolo: solo spese.
+            </div>
+          </div>
+
+
+          <!-- RICORRENTI -->
+          <div class="anaCard" id="recCard">
+            <div class="anaTop">
+              <div>
+                <div class="miniTitle" style="margin:0">Spese ricorrenti</div>
+                <div class="muted" style="font-size:12px">Affitto, bollette, abbonamenti: genera in automatico ogni mese</div>
+              </div>
+              <button class="btn small" id="btnManageRecurring" type="button">🔁 Gestisci</button>
+            </div>
+            <div class="hint" id="recHint" style="margin-top:0">
+              Aggiungi ricorrenti e l’app creerà le spese del mese automaticamente (senza duplicati).
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- SICUREZZA -->
+          <div class="anaCard" id="secCard">
+            <div class="anaTop">
+              <div>
+                <div class="miniTitle" style="margin:0">Sicurezza</div>
+                <div class="muted" style="font-size:12px">Blocca l’app con PIN (offline)</div>
+              </div>
+              <div class="row" style="justify-content:flex-end; margin:0">
+                <button class="btn small" id="btnSetPin" type="button">🔒 Imposta/Modifica PIN</button>
+                <button class="btn small bad" id="btnRemovePin" type="button">🧨 Rimuovi PIN</button>
+              </div>
+            </div>
+            <div class="hint" id="pinStateHint" style="margin-top:0">PIN: non impostato</div>
+          </div>
+
+          <div class="row">
+            <button class="btn bad" id="btnWipeAll" type="button">🗑️ Reset totale</button>
+          </div>
+
+          <div class="hint" style="margin-top:12px">
+            CAF/ISEE include solo: Farmacia/Mediche, Scuola, Bambini, Assicurazioni, Casa, Bollette.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  
+
+  <!-- DOCUMENTI -->
+  <section class="page" data-page="docs">
+    <div class="wrap">
+      <div class="card">
+        <div class="hd">
+          <div>
+            <h2>Documenti</h2>
+            <div class="sub">Bollette • Garanzie • Scadenze • ISEE • Assicurazioni</div>
+          </div>
+          <button class="btn small" id="btnAddDoc" type="button">➕ Nuovo</button>
+        </div>
+
+        <div class="bd">
+          <div class="toolbar" style="padding:0; border:0; background:transparent; margin-bottom:10px">
+            <div class="field">
+              <label class="toolbarLabel">Categoria</label>
+              <select id="dCategory"></select>
+            </div>
+            <div class="field">
+              <label class="toolbarLabel">Cerca</label>
+              <input id="dSearch" placeholder="es: assicurazione / luce / lavatrice..." />
+            </div>
+            <div class="right-actions">
+              <button class="btn small" id="btnDocSoon" type="button">⏰ In scadenza</button>
+            </div>
+          </div>
+
+          <div class="listHeader">
+            <div class="muted" id="docCountLabel">0 documenti</div>
+            <div class="muted" id="docSoonLabel">—</div>
+          </div>
+
+          <div class="list" id="docList"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- IMPOSTAZIONI -->
+  <section class="page" data-page="settings">
+    <div class="wrap">
+      <div class="card">
+        <div class="hd">
+          <div>
+            <h2>Impostazioni</h2>
+            <div class="sub">Sicurezza • Preferiti • Configurazione</div>
+          </div>
+        </div>
+
+        <div class="bd">
+          <div class="notice">
+            Qui l’utente può personalizzare l’app senza toccare i dati.
+          </div>
+
+          <h3 class="miniTitle">🎛️ Modalità</h3>
+          <div class="row">
+            <div class="pill">
+              <input id="simpleModeToggle" type="checkbox" />
+              <label for="simpleModeToggle">Modalità Semplice (nasconde funzioni avanzate)</label>
+            </div>
+            <div class="hint">Consigliato per non avere caos. Puoi riattivare la Modalità Pro quando vuoi.</div>
+          </div>
+
+          <div data-pro-only="1" class="card soft" style="margin-top:10px">
+            <div class="bd">
+              <div class="sub" style="margin-bottom:8px">Scorciatoie Pro</div>
+              <div class="two">
+                <button id="goDocs" class="btn" type="button">Apri Documenti</button>
+                <button id="goRecurr" class="btn" type="button">Apri Ricorrenti</button>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="miniTitle">🔒 Sicurezza</h3>
+          <div class="two">
+            <div>
+              <label>PIN (4–8 cifre)</label>
+              <input id="setPin" inputmode="numeric" placeholder="Imposta o cambia PIN" />
+            </div>
+            <div>
+              <label>Conferma PIN</label>
+              <input id="setPin2" inputmode="numeric" placeholder="Ripeti PIN" />
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn ok" id="btnSavePin" type="button">✅ Salva PIN</button>
+            <button class="btn bad" id="btnRemovePin" type="button">🗑️ Rimuovi PIN</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3 class="miniTitle">🫶 Impronta / Biometria</h3>
+          <div class="hint">
+            Nota: in PWA/WebView l’impronta dipende dal supporto del dispositivo (WebAuthn/Passkey). Se non supportata, resta il PIN.
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn" id="btnEnableBio" type="button">🔐 Attiva impronta</button>
+            <button class="btn bad" id="btnDisableBio" type="button">⛔ Disattiva impronta</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3 class="miniTitle">⭐ Categorie preferite</h3>
+          <div class="hint">Le preferite compaiono in “Spesa veloce” e in cima alle categorie.</div>
+          <div class="prefsGrid" id="favCats"></div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn ok" id="btnSaveFavCats" type="button">✅ Salva preferiti</button>
+            <button class="btn" id="btnResetFavCats" type="button">🔄 Ripristina</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3 class="miniTitle" data-pro-only="1">🤝 Coppia / Coinquilini</h3>
+          <div class="hint">Il nome verrà usato in “Divisione spesa” e nel riepilogo in Report.</div>
+          <div class="two">
+            <div>
+              <label>Nome partner / coinquilino</label>
+              <input id="partnerName" placeholder="es: Sara" />
+            </div>
+            <div>
+              <label>Divisione predefinita</label>
+              <select id="defaultSplit">
+                <option value="mine">Solo io</option>
+                <option value="partner">Solo partner</option>
+                <option value="half">50/50</option>
+                <option value="custom">Custom (usa percentuale)</option>
+              </select>
+            </div>
+          </div>
+          <div class="two" id="defaultSplitCustomRow" style="display:none">
+            <div>
+              <label>La mia quota predefinita (%)</label>
+              <input id="defaultSplitMinePct" inputmode="decimal" placeholder="es: 60" />
+            </div>
+            <div>
+              <label>Quota partner (%)</label>
+              <input id="defaultSplitPartnerPct" inputmode="decimal" placeholder="es: 40" disabled />
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn ok" id="btnSavePartner" type="button">✅ Salva</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3 class="miniTitle" data-pro-only="1">🧠 Regole automatiche</h3>
+          <div class="hint">
+            Se la descrizione contiene una parola chiave, l’app imposta automaticamente categoria/portafoglio/profilo.
+            Le regole si applicano solo alle nuove spese (non modificano le vecchie).
+          </div>
+
+          <div class="two">
+            <div>
+              <label>Parola chiave (contiene)</label>
+              <input id="ruleKey" placeholder="es: coop / q8 / farmacia" />
+            </div>
+            <div>
+              <label>Applica solo se campi “di default”</label>
+              <select id="ruleSafe">
+                <option value="1">Sì (consigliato)</option>
+                <option value="0">No (può sovrascrivere)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="two">
+            <div>
+              <label>Categoria</label>
+              <select id="ruleCategory"></select>
+            </div>
+            <div>
+              <label>Portafoglio</label>
+              <select id="ruleWallet"></select>
+            </div>
+          </div>
+
+          <div class="two">
+            <div>
+              <label>Profilo</label>
+              <select id="ruleProfile"></select>
+            </div>
+            <div>
+              <label>Attiva</label>
+              <select id="ruleEnabled">
+                <option value="1">Sì</option>
+                <option value="0">No</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <button class="btn ok" id="btnAddRule" type="button">➕ Aggiungi regola</button>
+            <button class="btn" id="btnResetRules" type="button">🔄 Ripristina regole</button>
+          </div>
+
+          <div class="list" id="rulesList" style="margin-top:12px"></div>
+
+          <div class="divider"></div>
+
+
+          
+          <h3 class="miniTitle" data-pro-only="1">📳 NFC scorciatoie</h3>
+          <div class="hint">
+            Puoi scrivere un tag NFC che apre l’app e <b>precompila</b> un nuovo movimento (es. “Benzina – Carta”).
+            Funziona su dispositivi compatibili. In alternativa puoi usare il link come scorciatoia.
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn primary" id="btnNfcOpen" type="button">📳 Crea tag NFC</button>
+            <button class="btn" id="btnNfcTest" type="button">🔗 Copia link test</button>
+          </div>
+
+
+          <h3 class="miniTitle" data-pro-only="1">🏦 Import pagamenti banca</h3>
+          <div class="notice">
+            In PWA/TWA non è possibile leggere automaticamente le notifiche di altre app. Qui puoi però importare i pagamenti
+            da <b>testo</b> (notifica/SMS/email) con analisi automatica. Funzione attivabile dall’utente.
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <label class="chip" style="margin:0">
+              <input id="bankImportToggle" type="checkbox">
+              <span>Abilita import da testo</span>
+            </label>
+            <label class="chip" style="margin:0">
+              <input id="bankShareToggle" type="checkbox">
+              <span>Abilita “Condividi verso app”</span>
+            </label>
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <button class="btn primary" id="btnBankImportOpen" type="button">🏦 Importa da testo</button>
+            <button class="btn" id="btnBankImportHelp" type="button">❓ Formati supportati</button>
+          </div>
+
+
+<h3 class="miniTitle">🧰 Strumenti</h3>
+          <div class="row">
+            <button class="btn" id="btnRepairCache" type="button">🧹 Ripara cache</button>
+            <button class="btn bad" id="btnFactoryReset" type="button">🧨 Reset configurazione</button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+<!-- FAB -->
+  <button class="fab" id="fabAdd" aria-label="Aggiungi spesa">＋</button>
+
+  <!-- Bottom nav -->
+  <nav class="bottomNav">
+    <button class="navBtn active" data-nav="home" type="button">🏠 <span>Home</span></button>
+    <button class="navBtn" data-nav="archive" type="button">📒 <span>Movimenti</span></button>
+    <button class="navBtn" data-nav="report" type="button">📄 <span>Report</span></button>
+    <button class="navBtn" data-nav="settings" type="button">⚙️ <span>Impostazioni</span></button>
+  </nav>
+</main>
+
+<!-- MODAL ADD -->
+<div class="modal" id="modalAdd" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3 id="addTitle">➕ Aggiungi spesa</h3>
+      <button class="btn small" id="addClose" type="button">✖</button>
+    </div>
+
+    <div class="mb">
+      <div class="two">
+        <div>
+          <label>Importo (€)</label>
+          <input id="inAmount" inputmode="decimal" placeholder="es: 12,50" />
+        </div>
+        <div>
+          <label>Data</label>
+          <input id="inDate" type="date" />
+        </div>
+      </div>
+
+
+      <label>Tipo</label>
+      <div class="seg" role="group" aria-label="Tipo movimento">
+        <button class="segBtn active" id="typeExpense" type="button">− Spesa</button>
+        <button class="segBtn" id="typeIncome" type="button">+ Entrata</button>
+      </div>
+
+      <label>Portafoglio</label>
+      <select id="inWallet"></select>
+
+      <label>Profilo</label>
+      <select id="inProfile"></select>
+
+      <label>Categoria</label>
+      <select id="inCategory"></select>
+
+            
+      <label>Descrizione</label>
+      <input id="inNote" placeholder="es: CONAD / Q8 / bolletta / bonifico..." />
+<div id="splitBlock">
+        <label>Divisione spesa</label>
+        <div class="seg" role="group" aria-label="Divisione spesa">
+          <button class="segBtn active" id="splitMine" type="button">Solo io</button>
+          <button class="segBtn" id="splitPartner" type="button">Solo <span id="partnerLabel1">Partner</span></button>
+          <button class="segBtn" id="splitHalf" type="button">50/50</button>
+          <button class="segBtn" id="splitCustom" type="button">Custom</button>
+        </div>
+
+        <div class="two" id="splitCustomRow" style="display:none; margin-top:10px">
+          <div>
+            <label>La mia quota (%)</label>
+            <input id="splitMinePct" inputmode="decimal" placeholder="es: 60" />
+          </div>
+          <div>
+            <label><span id="partnerLabel2">Partner</span> quota (%)</label>
+            <input id="splitPartnerPct" inputmode="decimal" placeholder="es: 40" disabled />
+          </div>
+        </div>
+
+        <div class="hint" style="margin-top:10px">
+          Utile per coppie/coinquilini: l’app calcola chi deve cosa.
+        </div>
+      </div>
+
+<label>Foto scontrino (opzionale)</label>
+      <input id="inPhoto" type="file" accept="image/*" />
+
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="btnOpenScanner" type="button">🪄 Scanner scontrino</button>
+        <button class="btn small bad" id="removePhoto" type="button">🗑️ Rimuovi foto</button>
+      </div>
+
+      <div class="photoPrev" id="photoPrev" style="display:none">
+        <img id="photoPrevImg" alt="Anteprima foto">
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn ok" id="btnSave" type="button">✅ Salva</button>
+        <button class="btn" id="btnClear" type="button">🧽 Pulisci</button>
+      </div>
+
+      <div class="hint" style="margin-top:10px">
+        Scanner: ritaglio/rotazione/contrasto senza OCR (stabile).
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETAILS -->
+<div class="modal" id="modalDetails" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3 id="mTitle">Dettagli</h3>
+      <button class="btn small" id="mClose" type="button">✖</button>
+    </div>
+    <div class="mb">
+      <div class="muted" id="mMeta" style="margin-bottom:10px"></div>
+      <img id="mImg" class="preview" alt="Anteprima scontrino" style="display:none">
+      <div class="row" style="margin-top:12px; justify-content:space-between">
+        <button class="btn small" id="mEdit" type="button">✏️ Modifica</button>
+        <button class="btn small bad" id="mDelete" type="button">🗑️ Elimina</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL BUDGET -->
+<div class="modal" id="modalBudget" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3>🎯 Budget mensile</h3>
+      <button class="btn small" id="budgetClose" type="button">✖</button>
+    </div>
+    <div class="mb">
+      <label>Budget totale del mese (€)</label>
+      <input id="budgetInput" inputmode="decimal" placeholder="es: 700,00" />
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn ok" id="budgetSave" type="button">✅ Salva</button>
+        <button class="btn bad" id="budgetClear" type="button">🗑️ Rimuovi</button>
+      </div>
+
+      <div class="hint" style="margin-top:10px">
+        Il budget è salvato per mese.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL SCANNER -->
+<div class="modal" id="modalScanner" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3>🪄 Scanner scontrino</h3>
+      <button class="btn small" id="scannerClose" type="button">✖</button>
+    </div>
+
+    <div class="mb">
+      <div class="scannerStage">
+        <canvas id="scanCanvas"></canvas>
+      </div>
+
+      <div class="scannerGrid">
+        <div>
+          <label>Rotazione</label>
+          <div class="row">
+            <button class="btn small" id="rotL" type="button">↺</button>
+            <button class="btn small" id="rotR" type="button">↻</button>
+          </div>
+        </div>
+
+        <div>
+          <label>Contrasto</label>
+          <input id="scanContrast" type="range" min="0.6" max="1.8" step="0.05" value="1.15">
+        </div>
+
+        <div>
+          <label>Luminosità</label>
+          <input id="scanBright" type="range" min="-30" max="30" step="1" value="8">
+        </div>
+
+        <div>
+          <label>Ritaglio (margini %)</label>
+          <div class="cropGrid">
+            <div><span class="muted">Sx</span><input id="cropL" type="range" min="0" max="30" step="1" value="2"></div>
+            <div><span class="muted">Dx</span><input id="cropR" type="range" min="0" max="30" step="1" value="2"></div>
+            <div><span class="muted">Su</span><input id="cropT" type="range" min="0" max="30" step="1" value="2"></div>
+            <div><span class="muted">Giù</span><input id="cropB" type="range" min="0" max="30" step="1" value="2"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn ok" id="applyScan" type="button">✅ Applica alla foto</button>
+        <button class="btn" id="resetScan" type="button">🔄 Reset</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- MODAL LOCK -->
+<div class="modal modalLock" id="modalLock" aria-hidden="true">
+  <div class="box lockBox">
+    <div class="mh">
+      <h3>🔒 App bloccata</h3>
+      <span class="muted" style="font-size:12px">Inserisci il PIN per continuare</span>
+    </div>
+    <div class="mb">
+      <label>PIN</label>
+      <input id="lockPin" inputmode="numeric" maxlength="8" placeholder="••••" />
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" id="btnUnlock" type="button">✅ Sblocca</button>
+        <button class="btn" id="btnUnlockBio" type="button">🫶 Impronta</button>
+      </div>
+      <div class="hint" style="margin-top:10px">
+        Il PIN è salvato solo sul dispositivo (offline). Se l’impronta è disponibile, puoi usarla per sbloccare.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PIN -->
+<div class="modal" id="modalPin" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3 id="pinTitle">🔒 PIN</h3>
+      <button class="btn small" id="pinClose" type="button">✖</button>
+    </div>
+    <div class="mb">
+      <div id="pinCurrentWrap" style="display:none">
+        <label>PIN attuale</label>
+        <input id="pinCurrent" inputmode="numeric" maxlength="8" placeholder="••••" />
+      </div>
+
+      <label>Nuovo PIN</label>
+      <input id="pinNew" inputmode="numeric" maxlength="8" placeholder="4-8 cifre" />
+
+      <label>Conferma PIN</label>
+      <input id="pinNew2" inputmode="numeric" maxlength="8" placeholder="ripeti PIN" />
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn ok" id="pinSave" type="button">✅ Salva PIN</button>
+      </div>
+
+      <div class="hint" style="margin-top:10px">
+        Consiglio: 4-6 cifre. Non usare date di nascita.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL RICORRENTI -->
+<div class="modal" id="modalRecurring" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3>🔁 Spese ricorrenti</h3>
+      <button class="btn small" id="recClose" type="button">✖</button>
+    </div>
+
+    <div class="mb">
+      <div class="hint" style="margin-top:0">
+        Le ricorrenti vengono generate automaticamente nel mese selezionato (se non esistono già).
+      </div>
+
+      <div class="divider"></div>
+
+      <h3 class="miniTitle">Aggiungi ricorrente</h3>
+      <div class="two">
+        <div>
+          <label>Importo (€)</label>
+          <input id="recAmount" inputmode="decimal" placeholder="es: 450,00" />
+        </div>
+        <div>
+          <label>Giorno del mese</label>
+          <input id="recDay" type="number" min="1" max="28" value="1" />
+        </div>
+      </div>
+
+      <label>Descrizione</label>
+      <input id="recTitle" placeholder="es: Affitto / Netflix / Luce..." />
+
+      <div class="two">
+        <div>
+          <label>Categoria</label>
+          <select id="recCategory"></select>
+        </div>
+        <div>
+          <label>Profilo</label>
+          <select id="recProfile"></select>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn ok" id="recAdd" type="button">✅ Aggiungi</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <h3 class="miniTitle">Elenco ricorrenti</h3>
+      <div class="list" id="recList"></div>
+    </div>
+  </div>
+</div>
+
+
+
+<!-- MODAL ADD DOC -->
+<div class="modal" id="modalDoc" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3 id="docTitle">📁 Nuovo documento</h3>
+      <button class="btn small" id="docClose" type="button">✖</button>
+    </div>
+
+    <div class="mb">
+      <label>Nome documento</label>
+      <input id="dName" placeholder="es: Assicurazione Auto / Bolletta Luce / Garanzia Lavatrice" />
+
+      <div class="two">
+        <div>
+          <label>Categoria</label>
+          <select id="dCatIn"></select>
+        </div>
+        <div>
+          <label>Data documento</label>
+          <input id="dDate" type="date" />
+        </div>
+      </div>
+
+      <div class="two">
+        <div>
+          <label>Scadenza (opzionale)</label>
+          <input id="dDue" type="date" />
+        </div>
+        <div>
+          <label>Fine garanzia (opzionale)</label>
+          <input id="dWarranty" type="date" />
+        </div>
+      </div>
+
+      <label>Allega file (immagine o PDF)</label>
+      <input id="dFile" type="file" accept="image/*,application/pdf" />
+
+      <div class="hint" style="margin-top:10px">
+        Suggerimento: usa “Scadenza” per assicurazioni/bollette/ISEE e “Garanzia” per acquisti importanti.
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn ok" id="docSave" type="button">✅ Salva</button>
+        <button class="btn bad" id="docDelete" type="button" style="display:none">🗑️ Elimina</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+<!-- MODAL NFC -->
+<div class="modal" id="modalNfc" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3>📳 Crea tag NFC</h3>
+      <button class="btn small" id="nfcClose" type="button">✖</button>
+    </div>
+    <div class="mb">
+      <div class="notice">
+        Scrive un tag NFC con un link sicuro che apre l’app e precompila un nuovo movimento.
+      </div>
+
+      <div class="two">
+        <div>
+          <label>Tipo</label>
+          <select id="nfcType">
+            <option value="expense">− Spesa</option>
+            <option value="income">+ Entrata</option>
+          </select>
+        </div>
+        <div>
+          <label>Importo (opzionale)</label>
+          <input id="nfcAmount" inputmode="decimal" placeholder="es: 20,00" />
+        </div>
+      </div>
+
+      <label>Portafoglio</label>
+      <select id="nfcWallet"></select>
+
+      <label>Profilo</label>
+      <select id="nfcProfile"></select>
+
+      <label>Categoria</label>
+      <select id="nfcCategory"></select>
+
+      <label>Descrizione (opzionale)</label>
+      <input id="nfcNote" placeholder="es: Q8 / Coop / Farmacia..." />
+
+      <div id="nfcSplitWrap">
+        <label>Divisione (solo spese)</label>
+        <select id="nfcSplit">
+          <option value="mine">Solo io</option>
+          <option value="partner">Solo partner</option>
+          <option value="half">50/50</option>
+          <option value="custom">Custom %</option>
+        </select>
+        <div class="two" style="margin-top:10px">
+          <div>
+            <label>% Io (solo custom)</label>
+            <input id="nfcMinePct" inputmode="numeric" placeholder="es: 70" />
+          </div>
+          <div>
+            <label>% Partner (solo custom)</label>
+            <input id="nfcPartnerPct" inputmode="numeric" placeholder="es: 30" />
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <label>Link generato</label>
+      <input id="nfcLink" readonly />
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" id="btnNfcWrite" type="button">📳 Scrivi tag NFC</button>
+        <button class="btn" id="btnNfcCopy" type="button">📋 Copia link</button>
+      </div>
+
+      <div class="hint" style="margin-top:10px" id="nfcSupportHint">
+        Se il tuo dispositivo/browser non supporta Web NFC, usa “Copia link” e crea una scorciatoia sulla Home.
+      </div>
+    </div>
+  </div>
+</div>
+<!-- MODAL BANK IMPORT -->
+<div class="modal" id="modalBankImport" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3>🏦 Importa pagamento da testo</h3>
+      <button class="btn small" id="bankClose" type="button">✖</button>
+    </div>
+    <div class="mb">
+      <label>Incolla qui il testo (notifica/SMS/email)</label>
+      <textarea id="bankText" rows="6" placeholder="Esempio: Pagamento 12,50€ a CONAD con carta..."></textarea>
+
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" id="bankAnalyze" type="button">🧠 Analizza</button>
+        <button class="btn" id="bankClear" type="button">🧽 Pulisci</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="two">
+        <div>
+          <label>Tipo</label>
+          <select id="bankType">
+            <option value="expense">− Spesa</option>
+            <option value="income">+ Entrata</option>
+          </select>
+        </div>
+        <div>
+          <label>Importo</label>
+          <input id="bankAmount" inputmode="decimal" placeholder="es: 12,50" />
+        </div>
+      </div>
+
+      <div class="two">
+        <div>
+          <label>Portafoglio suggerito</label>
+          <select id="bankWallet"></select>
+        </div>
+        <div>
+          <label>Profilo suggerito</label>
+          <select id="bankProfile"></select>
+        </div>
+      </div>
+
+      <label>Categoria suggerita</label>
+      <select id="bankCategory"></select>
+
+      <label>Descrizione/Negozio</label>
+      <input id="bankNote" placeholder="es: CONAD / Q8 / Accredito stipendio..." />
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn ok" id="bankToMove" type="button">✅ Apri come nuovo movimento</button>
+      </div>
+
+      <div class="hint" style="margin-top:10px">
+        L’app non salva automaticamente: apre il movimento già compilato per conferma (zero errori).
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- TOAST -->
+<div class="toast" id="toast" aria-live="polite" aria-atomic="true"></div>
+
+
+<!-- =========================
+     Ultra-native BottomSheet (v17)
+     ========================= -->
+<div class="sheetBackdrop" id="sheetBackdrop" aria-hidden="true"></div>
+<div class="bottomSheet" id="fabSheet" role="dialog" aria-modal="true" aria-label="Aggiungi">
+  <div class="sheetHandle" aria-hidden="true"></div>
+  <div class="sheetHeader">
+    <div class="sheetTitle">Aggiungi</div>
+    <button class="iconBtn" id="sheetCloseBtn" aria-label="Chiudi">✕</button>
+  </div>
+  <div class="sheetGrid">
+    <button class="sheetAction" id="sheetAddExpense">
+      <div class="saIcon">➖</div>
+      <div class="saText">
+        <div class="saTitle">Spesa</div>
+        <div class="saSub">Nuovo movimento</div>
+      </div>
+    </button>
+    <button class="sheetAction" id="sheetAddIncome">
+      <div class="saIcon">➕</div>
+      <div class="saText">
+        <div class="saTitle">Entrata</div>
+        <div class="saSub">Accredito/introito</div>
+      </div>
+    </button>
+    <button class="sheetAction" id="sheetAddDoc">
+      <div class="saIcon">📄</div>
+      <div class="saText">
+        <div class="saTitle">Documento</div>
+        <div class="saSub">Scadenze/garanzie</div>
+      </div>
+    </button>
+    <button class="sheetAction" id="sheetAddRecurring">
+      <div class="saIcon">🔁</div>
+      <div class="saText">
+        <div class="saTitle">Pagamento fisso</div>
+        <div class="saSub">Ricorrente mensile</div>
+      </div>
+    </button>
+  </div>
+</div>
+
+
+<!-- =========================
+     Loading overlay (v20)
+     ========================= -->
+<div class="loadingOverlay" id="sspLoading" aria-hidden="true">
+  <div class="loadingCard" role="status" aria-live="polite">
+    <div class="spinner"></div>
+    <div class="loadingText">
+      <div class="loadingTitle" id="sspLoadingTitle">Operazione in corso…</div>
+      <div class="loadingSub" id="sspLoadingSub">Attendi un momento</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- SSP_BUILD v21.3 -->
+<div id="sspBuildBadge" style="position:fixed;left:10px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:99999;
+background:rgba(0,0,0,.55);color:#fff;padding:6px 10px;border-radius:999px;font:12px system-ui;pointer-events:none;">
+SSP v21.4
+</div>
+
+
+<!-- Debug overlay (v21.3) -->
+<div class="debugOverlay" id="sspDebug" aria-hidden="true">
+  <div class="debugCard">
+    <h3>Errore JavaScript (debug)</h3>
+    <pre id="sspDebugText">—</pre>
+    <div class="debugRow">
+      <button class="debugBtn" id="sspDebugReload">Ricarica</button>
+      <button class="debugBtn" id="sspDebugReset">Reset dati app</button>
+      <button class="debugBtn" id="sspDebugClose">Chiudi</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
