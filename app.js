@@ -8,7 +8,7 @@
     dbName: "spese_scontrini_pro_db",
     dbVersion: 1,
     store: "expenses",
-    settingsKey: "ssp_settings_v2",
+    settingsKey: "ssp_settings_v3",
     freeLimitExpenses: 30,
     freeLimitPdfPerMonth: 3,
     photoMaxSide: 1400,
@@ -29,77 +29,81 @@
   // ----------------------------
   const $ = (s) => document.querySelector(s);
 
-  function euro(n){
+  function toast(msg, ms = 1600) {
+    const t = $("#toast");
+    if (!t) return;
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(window.__toastT);
+    window.__toastT = setTimeout(() => t.classList.remove("show"), ms);
+  }
+
+  function haptic(ms = 10) {
+    try { if (navigator.vibrate) navigator.vibrate(ms); } catch {}
+  }
+
+  function euro(n) {
     const v = Number(n || 0);
     return "€ " + v.toFixed(2).replace(".", ",");
   }
-  function parseEuro(s){
-    const v = String(s ?? "").trim().replace(/\./g,"").replace(",", ".");
+
+  function parseEuro(s) {
+    const v = String(s ?? "").trim().replace(/\./g, "").replace(",", ".");
     const n = Number(v);
     return Number.isFinite(n) ? n : NaN;
   }
-  function pad2(n){ return String(n).padStart(2,"0"); }
-  function yyyymm(d){
-    const dt = new Date(d);
-    if (isNaN(dt)) return "";
-    return `${dt.getFullYear()}-${pad2(dt.getMonth()+1)}`;
-  }
-  function todayISO(){
-    const dt = new Date();
-    return `${dt.getFullYear()}-${pad2(dt.getMonth()+1)}-${pad2(dt.getDate())}`;
-  }
-  function monthNow(){
-    const dt = new Date();
-    return `${dt.getFullYear()}-${pad2(dt.getMonth()+1)}`;
-  }
-  function safeJSONParse(s, fallback){
-    try{ return JSON.parse(s); } catch { return fallback; }
+
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
+  function todayISO() {
+    const d = new Date();
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   }
 
-  // Toast
-  function toast(msg){
-    const host = $("#toastHost");
-    if(!host) return;
-    const t = document.createElement("div");
-    t.className = "toast";
-    t.textContent = msg;
-    host.appendChild(t);
-    setTimeout(() => t.remove(), 2800);
+  function monthNow() {
+    const d = new Date();
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
   }
 
-  // Tiny haptic (non rompe nulla: se non supportato, ignora)
-  function haptic(ms=12){
-    try{ if(navigator.vibrate) navigator.vibrate(ms); } catch {}
+  function yyyymm(dateISO) {
+    const d = new Date(dateISO);
+    if (isNaN(d)) return "";
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (m) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
+    }[m]));
   }
 
   // ----------------------------
-  // SETTINGS (FREE / PRO + UI state)
+  // SETTINGS
   // ----------------------------
-  const settings = safeJSONParse(localStorage.getItem(APP.settingsKey) || "{}", {});
+  function loadSettings() {
+    try { return JSON.parse(localStorage.getItem(APP.settingsKey) || "{}"); }
+    catch { return {}; }
+  }
+  function saveSettings() {
+    localStorage.setItem(APP.settingsKey, JSON.stringify(settings));
+  }
+
+  const settings = loadSettings();
   settings.isPro = !!settings.isPro;
   settings.pdfCountByMonth = settings.pdfCountByMonth || {};
-  settings.activePage = settings.activePage || "dash";
-  localStorage.setItem(APP.settingsKey, JSON.stringify(settings));
+  saveSettings();
 
-  function saveSettings(){
-    local so = JSON.stringify(settings);
-    localStorage.setItem(APP.settingsKey, so);
-  }
-
-  function setProUI(){
-    $("#proState").textContent = settings.isPro ? "PRO" : "FREE";
-    $("#proPill").style.borderColor = settings.isPro ? "rgba(61,220,151,.5)" : "rgba(255,204,102,.35)";
+  function setProUI() {
+    const s = $("#proState");
+    if (s) s.textContent = settings.isPro ? "PRO" : "FREE";
     const fh = $("#freeHint");
-    if(fh) fh.style.display = settings.isPro ? "none" : "block";
+    if (fh) fh.style.display = settings.isPro ? "none" : "block";
   }
 
   // ----------------------------
   // NAV
   // ----------------------------
-  function setPage(name){
-    settings.activePage = name;
-    saveSettings();
-
+  function showPage(name) {
     document.querySelectorAll(".page").forEach(p => {
       p.classList.toggle("active", p.getAttribute("data-page") === name);
     });
@@ -108,21 +112,22 @@
     });
 
     const sub = $("#headerSubtitle");
-    if(sub){
+    if (sub) {
       sub.textContent =
-        name === "dash" ? "Offline • PDF • Foto scontrini • Backup" :
+        name === "home" ? "Offline • PDF • Foto scontrini • Backup" :
         name === "archive" ? "Archivio • filtri e ricerca rapida" :
-        name === "reports" ? "Report • PDF mensile e CAF/ISEE" :
-        "Impostazioni • backup • reset • PRO";
+        "Report • PDF mensile e CAF/ISEE";
     }
+
+    if (name === "archive") renderList();
   }
 
   // ----------------------------
   // INDEXEDDB
   // ----------------------------
-  let db;
+  let db = null;
 
-  function openDB(){
+  function openDB() {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open(APP.dbName, APP.dbVersion);
 
@@ -136,16 +141,16 @@
         }
       };
 
-      req.onsuccess = () => { db = req.result; resolve(db); };
+      req.onsuccess = () => { db = req.result; resolve(true); };
       req.onerror = () => reject(req.error);
     });
   }
 
-  function txStore(mode="readonly"){
+  function txStore(mode = "readonly") {
     return db.transaction(APP.store, mode).objectStore(APP.store);
   }
 
-  function dbGetAll(){
+  function dbGetAll() {
     return new Promise((resolve, reject) => {
       const req = txStore("readonly").getAll();
       req.onsuccess = () => resolve(req.result || []);
@@ -153,7 +158,7 @@
     });
   }
 
-  function dbPut(item){
+  function dbPut(item) {
     return new Promise((resolve, reject) => {
       const req = txStore("readwrite").put(item);
       req.onsuccess = () => resolve(true);
@@ -161,7 +166,7 @@
     });
   }
 
-  function dbDelete(id){
+  function dbDelete(id) {
     return new Promise((resolve, reject) => {
       const req = txStore("readwrite").delete(id);
       req.onsuccess = () => resolve(true);
@@ -169,7 +174,7 @@
     });
   }
 
-  function dbClear(){
+  function dbClear() {
     return new Promise((resolve, reject) => {
       const req = txStore("readwrite").clear();
       req.onsuccess = () => resolve(true);
@@ -178,12 +183,12 @@
   }
 
   // ----------------------------
-  // PHOTO COMPRESS
+  // PHOTO (compress)
   // ----------------------------
-  async function fileToCompressedDataURL(file){
-    if(!file) return null;
-    const img = await fileToImage(file);
+  async function fileToCompressedDataURL(file) {
+    if (!file) return null;
 
+    const img = await fileToImage(file);
     const w = img.naturalWidth || img.width;
     const h = img.naturalHeight || img.height;
 
@@ -200,7 +205,7 @@
     return canvas.toDataURL("image/jpeg", APP.photoJpegQuality);
   }
 
-  function fileToImage(file){
+  function fileToImage(file) {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
       const img = new Image();
@@ -210,244 +215,255 @@
     });
   }
 
-  // ----------------------------
-  // UI INIT
-  // ----------------------------
-  function fillCategories(){
-    $("#inCategory").innerHTML = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join("");
-    $("#fCategory").innerHTML = `<option value="">Tutte</option>` + CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join("");
-  }
-
-  function initDefaults(){
-    $("#inDate").value = todayISO();
-    $("#fMonth").value = monthNow();
-    const rm = $("#rMonth");
-    if(rm) rm.value = monthNow();
-    $("#inCategory").value = "Alimentari";
+  function setPhotoPreview(dataUrl) {
+    const wrap = $("#photoPrev");
+    const im = $("#photoPrevImg");
+    if (!wrap || !im) return;
+    if (!dataUrl) {
+      wrap.style.display = "none";
+      im.src = "";
+      return;
+    }
+    im.src = dataUrl;
+    wrap.style.display = "block";
   }
 
   // ----------------------------
   // DATA + RENDER
   // ----------------------------
   let all = [];
+  let editId = null;
+  let previewPhoto = null;
 
-  function applyFilters(){
-    const m = $("#fMonth").value || "";
-    const c = $("#fCategory").value || "";
-    const q = ($("#fSearch").value || "").trim().toLowerCase();
-
-    let list = all.slice();
-    if(m) list = list.filter(x => x.month === m);
-    if(c) list = list.filter(x => x.category === c);
-    if(q){
-      list = list.filter(x =>
-        (x.note || "").toLowerCase().includes(q) ||
-        (x.category || "").toLowerCase().includes(q)
-      );
-    }
-
-    list.sort((a,b) => (b.date||"").localeCompare(a.date||""));
-    return list;
+  function fillCategories() {
+    const inCat = $("#inCategory");
+    const fCat = $("#fCategory");
+    if (inCat) inCat.innerHTML = CATEGORIES.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+    if (fCat) fCat.innerHTML = `<option value="">Tutte</option>` + CATEGORIES.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   }
 
-  function calcStats(){
+  function calcStats() {
     const mNow = monthNow();
     const yNow = String(new Date().getFullYear());
 
-    const monthTotal = all.filter(x => x.month === mNow).reduce((s,x) => s + (Number(x.amount)||0), 0);
-    const yearTotal  = all.filter(x => (x.date || "").startsWith(yNow + "-")).reduce((s,x) => s + (Number(x.amount)||0), 0);
+    const monthTotal = all.filter(x => x.month === mNow).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    const yearTotal  = all.filter(x => (x.date || "").startsWith(yNow + "-")).reduce((s, x) => s + (Number(x.amount) || 0), 0);
 
-    $("#statMonth").textContent = euro(monthTotal);
-    $("#statYear").textContent = euro(yearTotal);
+    const sm = $("#statMonth");
+    const sy = $("#statYear");
+    if (sm) sm.textContent = euro(monthTotal);
+    if (sy) sy.textContent = euro(yearTotal);
   }
 
-  function renderList(){
-    const list = applyFilters();
-    const el = $("#list");
-    el.innerHTML = "";
+  function renderRecent() {
+    const el = $("#recentList");
+    if (!el) return;
 
-    const total = list.reduce((s,x) => s + (Number(x.amount)||0), 0);
-    $("#countLabel").textContent = `${list.length} spese (totale in app: ${all.length})`;
-    $("#sumLabel").textContent = `Totale filtro: ${euro(total)}`;
-
-    if(list.length === 0){
-      el.innerHTML = `<div class="hint">Nessuna spesa nei filtri selezionati. Premi “+” per aggiungere.</div>`;
+    const list = all.slice().sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 6);
+    if (list.length === 0) {
+      el.innerHTML = `<div class="hint">Ancora nessuna spesa. Premi “＋” per aggiungerne una.</div>`;
       return;
     }
 
-    for(const x of list){
-      const item = document.createElement("div");
-      item.className = "item";
-
-      const thumb = document.createElement("div");
-      thumb.className = "thumb";
-      if(x.photo){
-        const img = document.createElement("img");
-        img.src = x.photo;
-        img.alt = "scontrino";
-        thumb.appendChild(img);
-      } else {
-        thumb.textContent = "—";
-      }
-
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      meta.innerHTML = `
-        <div class="title">${escapeHtml(x.note || "Spesa")}</div>
-        <div class="sub">${escapeHtml(x.date)} • ${escapeHtml(x.category)}</div>
-        <div class="tag">${escapeHtml(x.month)}</div>
-      `;
-
-      const right = document.createElement("div");
-      right.innerHTML = `
+    el.innerHTML = list.map(x => `
+      <div class="item" data-open="${escapeHtml(x.id)}">
+        <div class="thumb">${x.photo ? `<img src="${x.photo}" alt="scontrino">` : "—"}</div>
+        <div class="meta">
+          <div class="title">${escapeHtml(x.note || "Spesa")}</div>
+          <div class="sub">${escapeHtml(x.date)} • ${escapeHtml(x.category)}</div>
+        </div>
         <div class="amt">${euro(x.amount)}</div>
-        <div style="height:6px"></div>
-        <button class="btn small" data-open="${x.id}">👁️ Dettagli</button>
-      `;
+      </div>
+    `).join("");
 
-      item.appendChild(thumb);
-      item.appendChild(meta);
-      item.appendChild(right);
-      el.appendChild(item);
-    }
-
-    el.querySelectorAll("[data-open]").forEach(btn => {
-      btn.addEventListener("click", () => openDetails(btn.getAttribute("data-open")));
+    el.querySelectorAll("[data-open]").forEach(r => {
+      r.addEventListener("click", () => openDetails(r.getAttribute("data-open")));
     });
   }
 
-  function escapeHtml(s){
-    return String(s ?? "").replace(/[&<>"']/g, m => ({
-      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
-    }[m]));
+  function applyFilters() {
+    const m = $("#fMonth")?.value || "";
+    const c = $("#fCategory")?.value || "";
+    const q = ($("#fSearch")?.value || "").trim().toLowerCase();
+
+    let list = all.slice();
+    if (m) list = list.filter(x => x.month === m);
+    if (c) list = list.filter(x => x.category === c);
+    if (q) list = list.filter(x =>
+      (x.note || "").toLowerCase().includes(q) ||
+      (x.category || "").toLowerCase().includes(q)
+    );
+
+    list.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    return list;
   }
 
-  async function refresh(){
+  function renderList() {
+    const el = $("#list");
+    if (!el) return;
+
+    const list = applyFilters();
+    const total = list.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+
+    const cl = $("#countLabel");
+    const sl = $("#sumLabel");
+    if (cl) cl.textContent = `${list.length} spese (totale in app: ${all.length})`;
+    if (sl) sl.textContent = `Totale filtro: ${euro(total)}`;
+
+    if (list.length === 0) {
+      el.innerHTML = `<div class="hint">Nessuna spesa con questi filtri. Premi “＋” per aggiungere.</div>`;
+      return;
+    }
+
+    el.innerHTML = list.map(x => `
+      <div class="item" data-open="${escapeHtml(x.id)}">
+        <div class="thumb">${x.photo ? `<img src="${x.photo}" alt="scontrino">` : "—"}</div>
+        <div class="meta">
+          <div class="title">${escapeHtml(x.note || "Spesa")}</div>
+          <div class="sub">${escapeHtml(x.date)} • ${escapeHtml(x.category)}</div>
+        </div>
+        <div class="amt">${euro(x.amount)}</div>
+      </div>
+    `).join("");
+
+    el.querySelectorAll("[data-open]").forEach(r => {
+      r.addEventListener("click", () => openDetails(r.getAttribute("data-open")));
+    });
+  }
+
+  async function refresh() {
     all = await dbGetAll();
-    calcStats();
-    renderList();
     setProUI();
+    calcStats();
+    renderRecent();
+    renderList();
   }
 
   // ----------------------------
   // MODALS
   // ----------------------------
-  function showModal(id){ $(id).classList.add("show"); }
-  function hideModal(id){ $(id).classList.remove("show"); }
-
-  // Add/Edit state
-  let editId = null;
-
-  function openAddModal(prefCategory){
-    editId = null;
-    $("#addTitle").textContent = "➕ Aggiungi spesa";
-    $("#btnSave").textContent = "✅ Salva";
-    $("#inAmount").value = "";
-    $("#inNote").value = "";
-    $("#inPhoto").value = "";
-    $("#inDate").value = todayISO();
-    if(prefCategory && CATEGORIES.includes(prefCategory)) $("#inCategory").value = prefCategory;
-    showModal("#modalAdd");
-    haptic();
+  function showModal(id) {
+    const m = $(id);
+    if (!m) return;
+    m.classList.add("show");
+    m.setAttribute("aria-hidden", "false");
+  }
+  function hideModal(id) {
+    const m = $(id);
+    if (!m) return;
+    m.classList.remove("show");
+    m.setAttribute("aria-hidden", "true");
   }
 
-  function closeAddModal(){
+  function openAddModal() {
+    editId = null;
+    previewPhoto = null;
+    setPhotoPreview(null);
+
+    $("#addTitle").textContent = "➕ Aggiungi spesa";
+    $("#inAmount").value = "";
+    $("#inDate").value = todayISO();
+    $("#inNote").value = "";
+    $("#inPhoto").value = "";
+    $("#inCategory").value = "Alimentari";
+
+    showModal("#modalAdd");
+    haptic(8);
+  }
+
+  function closeAddModal() {
     hideModal("#modalAdd");
   }
 
-  // Details modal
   let modalCurrentId = null;
 
-  function openDetails(id){
+  function openDetails(id) {
     const x = all.find(e => e.id === id);
-    if(!x) return;
+    if (!x) return;
     modalCurrentId = id;
 
     $("#mTitle").textContent = `${x.note || "Spesa"} • ${euro(x.amount)}`;
-    $("#mImg").src = x.photo || "";
-    $("#mImg").style.display = x.photo ? "block" : "none";
+    $("#mMeta").textContent = `${x.date} • ${x.category} • ${x.month}`;
+
+    const img = $("#mImg");
+    if (img) {
+      if (x.photo) {
+        img.src = x.photo;
+        img.style.display = "block";
+      } else {
+        img.src = "";
+        img.style.display = "none";
+      }
+    }
 
     showModal("#modalDetails");
-    haptic();
+    haptic(8);
   }
 
-  function closeDetails(){
+  function closeDetails() {
     hideModal("#modalDetails");
     modalCurrentId = null;
   }
 
-  async function deleteCurrent(){
-    if(!modalCurrentId) return;
-    const ok = confirm("Eliminare questa spesa?");
-    if(!ok) return;
-    await dbDelete(modalCurrentId);
-    closeDetails();
-    await refresh();
-    toast("Eliminata ✅");
-    haptic(18);
-  }
-
-  function openEditFromDetails(){
-    if(!modalCurrentId) return;
+  function openEditFromDetails() {
+    if (!modalCurrentId) return;
     const x = all.find(e => e.id === modalCurrentId);
-    if(!x) return;
+    if (!x) return;
 
     editId = x.id;
-    $("#addTitle").textContent = "✏️ Modifica spesa";
-    $("#btnSave").textContent = "✅ Aggiorna";
+    previewPhoto = null;
+    setPhotoPreview(null);
 
+    $("#addTitle").textContent = "✏️ Modifica spesa";
     $("#inAmount").value = String(x.amount).replace(".", ",");
     $("#inDate").value = x.date;
     $("#inCategory").value = x.category;
     $("#inNote").value = x.note || "";
-    $("#inPhoto").value = ""; // non ricarichiamo la foto file input
+    $("#inPhoto").value = "";
 
     closeDetails();
     showModal("#modalAdd");
+    haptic(8);
   }
 
   // ----------------------------
-  // SAVE / UPDATE
+  // SAVE / DELETE / RESET
   // ----------------------------
-  async function onSave(){
+  async function onSave() {
     const amount = parseEuro($("#inAmount").value);
     const date = $("#inDate").value;
     const category = $("#inCategory").value;
     const note = ($("#inNote").value || "").trim();
     const file = $("#inPhoto").files && $("#inPhoto").files[0];
 
-    if(!Number.isFinite(amount) || amount <= 0){
-      alert("Inserisci un importo valido (es: 12,50).");
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast("Importo non valido");
+      haptic(20);
       return;
     }
-    if(!date){
-      alert("Seleziona una data.");
+    if (!date) {
+      toast("Seleziona una data");
+      haptic(20);
       return;
     }
 
-    // Limite FREE solo su NUOVA spesa (non su modifica)
-    if(!settings.isPro && !editId){
-      if(all.length >= APP.freeLimitExpenses){
-        alert(`Versione FREE: massimo ${APP.freeLimitExpenses} spese. Attiva PRO per spese illimitate.`);
-        return;
-      }
+    if (!settings.isPro && !editId && all.length >= APP.freeLimitExpenses) {
+      alert(`Versione FREE: massimo ${APP.freeLimitExpenses} spese. Attiva PRO per illimitate.`);
+      return;
     }
 
-    // Se modifica: recupero record esistente
     let base = null;
-    if(editId){
-      base = all.find(x => x.id === editId) || null;
-    }
+    if (editId) base = all.find(x => x.id === editId) || null;
 
     let photo = base ? (base.photo || null) : null;
-    try{
-      if(file) photo = await fileToCompressedDataURL(file);
-    }catch{
-      alert("Foto non supportata o danneggiata. Riprova con un'immagine diversa.");
+    try {
+      if (file) photo = previewPhoto || await fileToCompressedDataURL(file);
+    } catch {
+      alert("Foto non supportata o danneggiata.");
       return;
     }
 
-    const id = editId || ((crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2));
+    const id = editId || ((crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(16).slice(2)}`);
 
     const item = {
       id,
@@ -462,63 +478,79 @@
     await dbPut(item);
 
     closeAddModal();
+    toast(editId ? "Aggiornato ✅" : "Salvato ✅");
+    haptic(12);
+
     editId = null;
+    previewPhoto = null;
+    setPhotoPreview(null);
 
     await refresh();
-    toast("Salvato ✅");
-    haptic(14);
   }
 
-  async function onWipeAll(){
-    const ok = confirm("Confermi RESET TOTALE? Cancella tutte le spese e le foto salvate.");
-    if(!ok) return;
+  async function deleteCurrent() {
+    if (!modalCurrentId) return;
+    const ok = confirm("Eliminare questa spesa?");
+    if (!ok) return;
+
+    await dbDelete(modalCurrentId);
+    closeDetails();
+    toast("Eliminata ✅");
+    haptic(14);
+    await refresh();
+  }
+
+  async function wipeAll() {
+    const ok = confirm("RESET TOTALE: cancella tutte le spese e foto. Confermi?");
+    if (!ok) return;
     await dbClear();
     settings.pdfCountByMonth = {};
     saveSettings();
-    await refresh();
     toast("Reset completato ✅");
+    haptic(14);
+    await refresh();
   }
 
   // ----------------------------
   // PDF
   // ----------------------------
-  function canGeneratePdf(){
-    if(settings.isPro) return true;
+  function canGeneratePdf() {
+    if (settings.isPro) return true;
     const m = monthNow();
     const used = Number(settings.pdfCountByMonth[m] || 0);
-    if(used >= APP.freeLimitPdfPerMonth){
+    if (used >= APP.freeLimitPdfPerMonth) {
       alert(`Versione FREE: massimo ${APP.freeLimitPdfPerMonth} PDF nel mese. Attiva PRO per illimitato.`);
       return false;
     }
     return true;
   }
 
-  function incPdfCount(){
+  function incPdfCount() {
     const m = monthNow();
     settings.pdfCountByMonth[m] = Number(settings.pdfCountByMonth[m] || 0) + 1;
     saveSettings();
   }
 
-  async function generatePdf(mode, targetMonth){
-    if(!window.jspdf || !window.jspdf.jsPDF){
-      alert("PDF non disponibile (jsPDF non caricato). Se vuoi offline 100%, metti jsPDF in locale.");
+  async function generatePdf(mode, targetMonth) {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      alert("PDF non disponibile (jsPDF non caricato).");
       return;
     }
-    if(!canGeneratePdf()) return;
+    if (!canGeneratePdf()) return;
 
     let list = all.filter(x => x.month === targetMonth);
-    if(mode === "caf") list = list.filter(x => CAF_CATEGORIES.has(x.category));
+    if (mode === "caf") list = list.filter(x => CAF_CATEGORIES.has(x.category));
 
-    if(list.length === 0){
-      alert("Nessuna spesa trovata per questo PDF.");
+    if (list.length === 0) {
+      toast("Nessuna spesa per il PDF");
       return;
     }
 
-    list.sort((a,b) => (a.date||"").localeCompare(b.date||""));
-    const total = list.reduce((s,x) => s + (Number(x.amount)||0), 0);
+    list.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    const total = list.reduce((s, x) => s + (Number(x.amount) || 0), 0);
 
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit:"pt", format:"a4" });
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
 
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
@@ -526,7 +558,6 @@
     let y = margin;
 
     const title = mode === "caf" ? "Report CAF/ISEE" : "Report Mensile";
-    const subtitle = `Mese: ${targetMonth} • Voci: ${list.length}`;
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
@@ -537,108 +568,107 @@
     doc.text(title, margin, y); y += 16;
 
     doc.setFontSize(10);
-    doc.text(subtitle, margin, y); y += 14;
+    doc.text(`Mese: ${targetMonth} • Voci: ${list.length}`, margin, y); y += 14;
     doc.text(`Totale: ${euro(total)}`, margin, y); y += 18;
 
-    if(!settings.isPro){
+    if (!settings.isPro) {
       doc.setFontSize(46);
       doc.setTextColor(200);
-      doc.text("VERSIONE GRATUITA", pageW/2, pageH/2, { align:"center", angle: -25 });
+      doc.text("VERSIONE GRATUITA", pageW / 2, pageH / 2, { align: "center", angle: -25 });
       doc.setTextColor(0);
       doc.setFontSize(10);
     }
 
-    doc.setFont("helvetica","bold");
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     doc.text("Data", margin, y);
     doc.text("Categoria", margin + 90, y);
     doc.text("Descrizione", margin + 220, y);
-    doc.text("Importo", pageW - margin, y, {align:"right"});
+    doc.text("Importo", pageW - margin, y, { align: "right" });
     y += 10;
 
-    doc.setFont("helvetica","normal");
+    doc.setFont("helvetica", "normal");
     doc.setDrawColor(180);
     doc.line(margin, y, pageW - margin, y);
     y += 14;
 
-    for(const x of list){
-      if(y > pageH - 120){
+    for (const x of list) {
+      if (y > pageH - 120) {
         doc.addPage();
         y = margin;
       }
       doc.text(String(x.date), margin, y);
-      doc.text(String(x.category).slice(0,18), margin + 90, y);
-      doc.text(String(x.note || "").slice(0,35), margin + 220, y);
-      doc.text(euro(x.amount), pageW - margin, y, {align:"right"});
+      doc.text(String(x.category).slice(0, 18), margin + 90, y);
+      doc.text(String(x.note || "").slice(0, 35), margin + 220, y);
+      doc.text(euro(x.amount), pageW - margin, y, { align: "right" });
       y += 14;
     }
 
+    // photos page
     doc.addPage();
     y = margin;
-    doc.setFont("helvetica","bold"); doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
     doc.text("Foto scontrini", margin, y); y += 14;
-    doc.setFont("helvetica","normal"); doc.setFontSize(10);
-    doc.text("Nota: le foto sono compresse per ridurre peso e migliorare stabilità su APK.", margin, y); y += 14;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text("Foto compresse per stabilità su APK.", margin, y); y += 14;
 
     const pics = list.filter(x => !!x.photo);
-    if(pics.length === 0){
+    if (pics.length === 0) {
       doc.text("Nessuna foto allegata.", margin, y);
     } else {
-      const colW = (pageW - margin*2 - 10) / 2;
+      const colW = (pageW - margin * 2 - 10) / 2;
       const imgH = 220;
       let col = 0;
 
-      for(const x of pics){
-        if(y + imgH > pageH - margin){
+      for (const x of pics) {
+        if (y + imgH > pageH - margin) {
           doc.addPage();
           y = margin;
           col = 0;
         }
-
         const xPos = margin + (col === 0 ? 0 : colW + 10);
         const yPos = y;
 
-        doc.setFont("helvetica","bold"); doc.setFontSize(10);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(10);
         doc.text(`${x.date} • ${x.category} • ${euro(x.amount)}`, xPos, yPos);
-        doc.setFont("helvetica","normal"); doc.setFontSize(9);
-        doc.text(String(x.note || "").slice(0,45), xPos, yPos + 12);
 
-        try{
-          doc.addImage(x.photo, "JPEG", xPos, yPos + 22, colW, imgH, undefined, "FAST");
-        }catch{
-          doc.text("Immagine non inseribile nel PDF.", xPos, yPos + 40);
+        try {
+          doc.addImage(x.photo, "JPEG", xPos, yPos + 14, colW, imgH, undefined, "FAST");
+        } catch {
+          doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+          doc.text("Immagine non inseribile.", xPos, yPos + 40);
         }
 
         col = 1 - col;
-        if(col === 0) y += (imgH + 40);
+        if (col === 0) y += (imgH + 30);
       }
     }
 
-    doc.setFontSize(9);
-    doc.setTextColor(120);
-    doc.text("Generato con Spese & Scontrini PRO • Offline", margin, pageH - 18);
-    doc.setTextColor(0);
+    if (!settings.isPro) incPdfCount();
 
-    if(!settings.isPro) incPdfCount();
+    const fileName = mode === "caf"
+      ? `Report_CAF_${targetMonth}.pdf`
+      : `Report_Mese_${targetMonth}.pdf`;
 
-    const fileName = mode === "caf" ? `Report_CAF_${targetMonth}.pdf` : `Report_Mese_${targetMonth}.pdf`;
     doc.save(fileName);
     toast("PDF creato ✅");
-    haptic(16);
+    haptic(12);
   }
 
   // ----------------------------
-  // BACKUP / RESTORE
+  // BACKUP
   // ----------------------------
-  async function exportBackup(){
+  async function exportBackup() {
     const payload = {
       app: "Spese&ScontriniPRO",
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
-      settings,
+      settings: { isPro: settings.isPro, pdfCountByMonth: settings.pdfCountByMonth },
       expenses: all
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement("a");
@@ -652,139 +682,172 @@
     toast("Backup esportato ✅");
   }
 
-  async function importBackup(file){
-    try{
+  async function importBackup(file) {
+    try {
       const txt = await file.text();
-      const payload = safeJSONParse(txt, null);
+      const payload = JSON.parse(txt);
 
-      if(!payload || !Array.isArray(payload.expenses)){
+      if (!payload || !Array.isArray(payload.expenses)) {
         alert("Backup non valido.");
         return;
       }
 
       const ok = confirm("Importare backup? Unisce le spese (non cancella quelle esistenti).");
-      if(!ok) return;
+      if (!ok) return;
 
       const existing = new Set(all.map(x => x.id));
       let added = 0;
 
-      for(const x of payload.expenses){
-        if(!x || !x.id) continue;
-        if(existing.has(x.id)) continue;
+      for (const x of payload.expenses) {
+        if (!x || !x.id) continue;
+        if (existing.has(x.id)) continue;
 
         const item = {
           id: String(x.id),
-          amount: Number(x.amount)||0,
-          date: String(x.date||""),
-          month: String(x.month||yyyymm(x.date||todayISO())),
-          category: String(x.category||"Altro"),
-          note: String(x.note||""),
+          amount: Number(x.amount) || 0,
+          date: String(x.date || ""),
+          month: String(x.month || yyyymm(x.date || todayISO())),
+          category: String(x.category || "Altro"),
+          note: String(x.note || ""),
           photo: x.photo ? String(x.photo) : null
         };
         await dbPut(item);
         added++;
       }
 
-      if(payload.settings && typeof payload.settings === "object"){
-        settings.pdfCountByMonth = payload.settings.pdfCountByMonth || settings.pdfCountByMonth;
-        saveSettings();
-      }
-
+      toast(`Importate: ${added} spese ✅`);
+      haptic(12);
       await refresh();
-      toast(`Import OK (+${added}) ✅`);
-      haptic(16);
-    }catch{
-      alert("Errore import backup: file non valido.");
+    } catch {
+      alert("Errore import: file non valido.");
     }
   }
 
   // ----------------------------
   // EVENTS
   // ----------------------------
-  function wire(){
-    // Nav
+  function wireUI() {
+    // nav
     document.querySelectorAll(".navBtn").forEach(b => {
-      b.addEventListener("click", () => { setPage(b.getAttribute("data-nav")); haptic(8); });
+      b.addEventListener("click", () => {
+        haptic(6);
+        showPage(b.getAttribute("data-nav"));
+      });
     });
 
-    // FAB + quick chips
-    $("#fabAdd").addEventListener("click", () => openAddModal());
-    document.querySelectorAll("[data-quick-cat]").forEach(c => {
-      c.addEventListener("click", () => openAddModal(c.getAttribute("data-quick-cat")));
+    $("#goArchive")?.addEventListener("click", () => showPage("archive"));
+    $("#goReport")?.addEventListener("click", () => showPage("report"));
+
+    // FAB / add modal
+    $("#fabAdd")?.addEventListener("click", () => {
+      openAddModal();
+      toast("Aggiungi spesa");
     });
 
-    // shortcuts dashboard
-    $("#btnGoArchive").addEventListener("click", () => setPage("archive"));
-    $("#btnGoReports").addEventListener("click", () => setPage("reports"));
-
-    // Filters
-    $("#fMonth").addEventListener("change", renderList);
-    $("#fCategory").addEventListener("change", renderList);
-    $("#fSearch").addEventListener("input", () => {
-      clearTimeout(window.__t);
-      window.__t = setTimeout(renderList, 120);
-    });
-    $("#btnClearFilters").addEventListener("click", () => {
-      $("#fMonth").value = monthNow();
-      $("#fCategory").value = "";
-      $("#fSearch").value = "";
-      renderList();
-      toast("Filtri puliti");
+    $("#addClose")?.addEventListener("click", closeAddModal);
+    $("#modalAdd")?.addEventListener("click", (e) => {
+      if (e.target === $("#modalAdd")) closeAddModal();
     });
 
-    // Add modal
-    $("#addClose").addEventListener("click", closeAddModal);
-    $("#modalAdd").addEventListener("click", (e) => {
-      if(e.target === $("#modalAdd")) closeAddModal();
-    });
-
-    $("#btnSave").addEventListener("click", onSave);
-    $("#btnClear").addEventListener("click", () => {
+    $("#btnSave")?.addEventListener("click", onSave);
+    $("#btnClear")?.addEventListener("click", () => {
       $("#inAmount").value = "";
       $("#inNote").value = "";
       $("#inPhoto").value = "";
+      previewPhoto = null;
+      setPhotoPreview(null);
       toast("Pulito");
     });
 
-    // Details modal
-    $("#mClose").addEventListener("click", closeDetails);
-    $("#modalDetails").addEventListener("click", (e) => {
-      if(e.target === $("#modalDetails")) closeDetails();
+    // photo preview
+    $("#inPhoto")?.addEventListener("change", async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) {
+        previewPhoto = null;
+        setPhotoPreview(null);
+        return;
+      }
+      try {
+        previewPhoto = await fileToCompressedDataURL(file);
+        setPhotoPreview(previewPhoto);
+        toast("Foto pronta ✅");
+      } catch {
+        previewPhoto = null;
+        setPhotoPreview(null);
+        toast("Foto non supportata");
+      }
     });
-    $("#mDelete").addEventListener("click", deleteCurrent);
-    $("#mEdit").addEventListener("click", openEditFromDetails);
 
-    // Settings
-    $("#btnWipeAll").addEventListener("click", onWipeAll);
+    $("#removePhoto")?.addEventListener("click", () => {
+      $("#inPhoto").value = "";
+      previewPhoto = null;
+      setPhotoPreview(null);
+      toast("Foto rimossa");
+    });
 
-    $("#btnBackup").addEventListener("click", exportBackup);
-    $("#inRestore").addEventListener("change", (e) => {
+    // details modal
+    $("#mClose")?.addEventListener("click", closeDetails);
+    $("#modalDetails")?.addEventListener("click", (e) => {
+      if (e.target === $("#modalDetails")) closeDetails();
+    });
+    $("#mDelete")?.addEventListener("click", deleteCurrent);
+    $("#mEdit")?.addEventListener("click", openEditFromDetails);
+
+    // filters
+    $("#fMonth")?.addEventListener("change", renderList);
+    $("#fCategory")?.addEventListener("change", renderList);
+    $("#fSearch")?.addEventListener("input", () => {
+      clearTimeout(window.__ft);
+      window.__ft = setTimeout(renderList, 120);
+    });
+
+    $("#btnClearFilters")?.addEventListener("click", () => {
+      $("#fMonth").value = monthNow();
+      $("#fCategory").value = "";
+      $("#fSearch").value = "";
+      toast("Filtri puliti");
+      renderList();
+    });
+
+    $("#btnToday")?.addEventListener("click", () => {
+      // scorciatoia: porta a home e apre add con data oggi
+      showPage("home");
+      openAddModal();
+      $("#inDate").value = todayISO();
+    });
+
+    // report
+    $("#rMonth").value = monthNow();
+    $("#btnMakePdf")?.addEventListener("click", () => {
+      const mode = $("#rMode")?.value || "month";
+      const m = $("#rMonth")?.value || monthNow();
+      generatePdf(mode, m);
+    });
+
+    // backup + reset
+    $("#btnBackup")?.addEventListener("click", exportBackup);
+    $("#inRestore")?.addEventListener("change", (e) => {
       const f = e.target.files && e.target.files[0];
-      if(f) importBackup(f);
+      if (f) importBackup(f);
       e.target.value = "";
     });
 
-    $("#btnProToggle").addEventListener("click", () => {
-      const ok = confirm(settings.isPro ? "Disattivare PRO (test)?" : "Attivare PRO (test) sul dispositivo?");
-      if(!ok) return;
+    $("#btnWipeAll")?.addEventListener("click", wipeAll);
+
+    // pro toggle
+    $("#btnProToggle")?.addEventListener("click", () => {
+      const ok = confirm(settings.isPro ? "Disattivare PRO (test)?" : "Attivare PRO (test) su questo dispositivo?");
+      if (!ok) return;
       settings.isPro = !settings.isPro;
       saveSettings();
       setProUI();
-      toast(settings.isPro ? "PRO attivo ✅" : "FREE attivo");
-      haptic(14);
+      toast(settings.isPro ? "PRO attivo (test)" : "FREE attivo");
+      haptic(10);
     });
-
-    // Reports
-    $("#btnMakePdf").addEventListener("click", () => {
-      const m = ($("#rMonth").value || monthNow());
-      const mode = $("#rMode").value || "month";
-      generatePdf(mode, m);
-    });
-    $("#btnOpenBackup").addEventListener("click", () => setPage("settings"));
   }
 
   // ----------------------------
-  // SERVICE WORKER
+  // SERVICE WORKER REGISTER
   // ----------------------------
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
@@ -795,18 +858,24 @@
   // ----------------------------
   // START
   // ----------------------------
-  (async function start(){
+  (async function start() {
     fillCategories();
-    initDefaults();
-    setProUI();
 
-    // Page initial
-    setPage(settings.activePage || "dash");
+    const inDate = $("#inDate");
+    if (inDate) inDate.value = todayISO();
+
+    const fMonth = $("#fMonth");
+    if (fMonth) fMonth.value = monthNow();
+
+    setProUI();
 
     await openDB();
     await refresh();
 
-    wire();
+    wireUI();
+
+    showPage("home");
+    toast("Pronto ✅", 1200);
   })();
 
 })();
