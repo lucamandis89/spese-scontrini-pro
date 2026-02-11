@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <meta name="theme-color" content="#0b0f17" />
+  <title>Spese & Scontrini PRO</title>
+
+  <link rel="manifest" href="./manifest.webmanifest?v=21.9">
+  <link rel="icon" href="./assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css?v=26.5">
+
+  <script>
+// SSP_BOOTSTRAP v21.8 — proves JS is running + shows errors on screen
+(function(){
+  function ensureBadge(){
+    var b=document.getElementById('sspBoot');
+    if(!b){
+      b=document.createElement('div');
+      b.id='sspBoot';
+      b.style.cssText='position:fixed;left:10px;bottom:10px;z-index:2147483647;background:rgba(0,0,0,.55);color:#fff;padding:6px 10px;border-radius:999px;font:12px system-ui;pointer-events:none';
+      b.textContent='SSP v21.8 JS:ON tap:0';
+      document.documentElement.appendChild(b);
+    }
+    return b;
+  }
+  var taps=0; ensureBadge();
+  function bump(){ taps++; var b=ensureBadge(); b.textContent='SSP v21.8 JS:ON tap:'+taps; }
+  document.addEventListener('click', bump, true);
+  document.addEventListener('touchend', bump, true);
+
+  function showErr(msg){
+    try{
+      var o=document.getElementById('sspErr');
+      if(!o){
+        o=document.createElement('div');
+        o.id='sspErr';
+        o.style.cssText='position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.82);color:#fff;padding:16px;overflow:auto;font:14px system-ui;white-space:pre-wrap';
+        o.innerHTML='<b>Errore JavaScript</b>\n\n';
+        document.documentElement.appendChild(o);
+      }
+      o.textContent='Errore JavaScript\n\n'+msg;
+    }catch(e){}
+  }
+  window.addEventListener('error', function(ev){
+    showErr((ev.message||'')+'\n'+(ev.filename||'')+':'+(ev.lineno||0)+':'+(ev.colno||0));
+  });
+  window.addEventListener('unhandledrejection', function(ev){
+    showErr('Promise rejection:\n'+String(ev.reason||ev));
+  });
+})();
+</script>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script defer src="./app.js?v=26.5"></script>
+<script>
+// SSP_SW_UNREGISTER v21.8
+(async function(){
+  try{
+    if('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for(const r of regs){ try{ await r.unregister(); }catch(e){} }
+    }
+  }catch(e){}
+})();
+</script>
+</head>
+
+<body>
+<header class="appHeader">
+  <div class="wrap topbar">
+    <div class="brand">
+      <div class="appIcon" aria-hidden="true"></div>
+      <div class="brandText">
+        <div class="title">Spese &amp; Scontrini <span class="muted">PRO</span></div>
+        <div class="subtitle" id="headerSubtitle">Offline • PDF • Foto scontrini • Backup
+</div>
+      </div>
+    </div>
+    <div class="pill">Stato: <b id="proState">FREE</b></div>
+  </div>
+</header>
+
+<main class="appMain">
+
+  <!-- HOME -->
+  <section class="page active" data-page="home">
+    <div class="wrap">
+      <div class="card">
+        <div class="hd">
+          <div>
+            <h2>Dashboard</h2>
+            <div class="sub">Totali + Budget</div>
+          </div>
+          <button class="btn small" id="btnProToggle" type="button">✨ Test PRO</button>
+        </div>
+
+        <div class="bd">
+          <div class="stats">
+            <div class="stat">
+              <div class="k">Totale mese</div>
+              <div class="v" id="statMonth">€ 0,00</div>
+            </div>
+            <div class="stat">
+              <div class="k">Totale anno</div>
+              <div class="v" id="statYear">€ 0,00</div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- BUDGET -->
+          <div class="budgetCard">
+            <div class="budgetTop">
+              <div>
+                <div class="budgetTitle">Budget mensile</div>
+                <div class="budgetSub muted" id="budgetSub">Imposta un budget per vedere il progresso</div>
+              </div>
+              <button class="btn small" id="btnBudget" type="button">🎯 Imposta</button>
+            </div>
+
+            <div class="budgetBarWrap">
+              <div class="budgetBar" id="budgetBar"></div>
+            </div>
+            <div class="budgetRow muted">
+              <span id="budgetLeft">—</span>
+              <span id="budgetPct">—</span>
+            </div>
+          </div>
+
+          <div class="hint" id="freeHint" style="margin-top:12px">
+            Versione <b>FREE</b>: massimo <b>30</b> spese e <b>3</b> PDF al mese (PDF con watermark).
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="row">
+            <button class="btn primary" id="goArchive" type="button">📂 Vai in Archivio</button>
+            <button class="btn" id="goReport" type="button">📄 Vai in Report</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3 class="miniTitle">Ultime spese</h3>
+          <div class="list" id="recentList"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ARCHIVIO -->
+  <section class="page" data-page="archive">
+    <div class="wrap">
+      <div class="card">
+        <div class="toolbar">
+          <div class="field small">
+            <label class="toolbarLabel">Mese</label>
+            <input id="fMonth" type="month" />
+          </div>
+          <div class="field">
+            <label class="toolbarLabel">Categoria</label>
+            <select id="fCategory"></select>
+          </div>
+          <div class="field">
+            <label class="toolbarLabel">Cerca</label>
+            <input id="fSearch" placeholder="es: benzina / farmacia / scuola..." />
+          </div>
+
+          <div class="right-actions">
+            <div class="seg" role="group" aria-label="Vista archivio">
+              <button class="segBtn active" id="viewList" type="button">Lista</button>
+              <button class="segBtn" id="viewTimeline" type="button">Timeline</button>
+            </div>
+            <button class="btn small" id="btnClearFilters" type="button">🧼 Filtri</button>
+          </div>
+        </div>
+
+        <div class="bd">
+          <div class="notice">
+            Badge “Detraibile” appare sulle categorie CAF/ISEE.
+          </div>
+
+          <div class="listHeader">
+            <div class="muted" id="countLabel">0 spese</div>
+            <div class="muted" id="sumLabel">Totale filtro: € 0,00</div>
+          </div>
+
+          <div class="list" id="list"></div>
+          <div class="timeline" id="timeline" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- REPORT -->
+  <section class="page" data-page="report">
+    <div class="wrap">
+      <div class="card">
+        <div class="hd">
+          <div>
+            <h2>Report</h2>
+            <div class="sub">PDF + Analisi categorie</div>
+          </div>
+        </div>
+
+        <div class="bd">
+          <div class="two">
+            <div>
+              <label>Mese report</label>
+              <input id="rMonth" type="month" />
+            </div>
+            <div>
+              <label>Tipo report</label>
+              <select id="rMode">
+                <option value="month">Report Mensile</option>
+                <option value="caf">Report CAF/ISEE</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <button class="btn primary" id="btnMakePdf" type="button">📄 Genera PDF</button>
+            <button class="btn" id="btnBackup" type="button">⬇️ Esporta backup</button>
+            <label class="btn" style="cursor:pointer">
+              ⬆️ Importa backup
+              <input id="inRestore" type="file" accept="application/json" style="display:none">
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- ANALISI / GRAFICO -->
+          <div class="anaCard">
+            <div class="anaTop">
+              <div>
+                <div class="miniTitle" style="margin:0">Analisi categorie</div>
+                <div class="muted" style="font-size:12px">Bar chart + Top categorie</div>
+              </div>
+              <label class="chip">
+                <input id="anaOnlyCaf" type="checkbox">
+                <span>Solo detraibili</span>
+              </label>
+            </div>
+
+            <div class="anaBars" id="anaBars"></div>
+
+            <div class="anaList" id="anaList"></div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="row">
+            <button class="btn bad" id="btnWipeAll" type="button">🗑️ Reset totale</button>
+          </div>
+
+          <div class="hint" style="margin-top:12px">
+            CAF/ISEE include solo: Farmacia/Mediche, Scuola, Bambini, Assicurazioni, Casa, Bollette.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAB -->
+  <button class="fab" id="fabAdd" aria-label="Aggiungi spesa">＋</button>
+
+  <!-- Bottom nav -->
+  <nav class="bottomNav">
+    <button class="navBtn active" data-nav="home" type="button">🏠 <span>Home</span></button>
+    <button class="navBtn" data-nav="archive" type="button">📂 <span>Archivio</span></button>
+    <button class="navBtn" data-nav="report" type="button">📄 <span>Report</span></button>
+  </nav>
+</main>
+
+<!-- MODAL ADD -->
+<div class="modal" id="modalAdd" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3 id="addTitle">➕ Aggiungi spesa</h3>
+      <button class="btn small" id="addClose" type="button">✖</button>
+    </div>
+
+    <div class="mb">
+      <div class="two">
+        <div>
+          <label>Importo (€)</label>
+          <input id="inAmount" inputmode="decimal" placeholder="es: 12,50" />
+        </div>
+        <div>
+          <label>Data</label>
+          <input id="inDate" type="date" />
+        </div>
+      </div>
+
+      <label>Categoria</label>
+      <select id="inCategory"></select>
+
+      <label>Descrizione</label>
+      <input id="inNote" placeholder="es: spesa supermercato / farmacia / benzina..." />
+
+      <label>Foto scontrino (opzionale)</label>
+
+      <div class="receiptActions">
+        <button type="button" class="btn" id="btnReceiptCamera">📷 Fai foto scontrino</button>
+        <button type="button" class="btn" id="btnReceiptGallery">🖼️ Allega scontrino</button>
+      </div>
+      <input id="inPhotoCam" type="file" accept="image/*" capture="environment" hidden />
+      <input id="inPhoto" type="file" accept="image/*" hidden />
+
+      <div class="hint muted" style="margin-top:6px">Se possibile, l’app prova a leggere importo e data automaticamente (OCR).</div>
+
+<div class="row" style="margin-top:10px">
+        <button class="btn" id="btnOpenScanner" type="button">🪄 Scanner scontrino</button>
+        <button class="btn small bad" id="removePhoto" type="button">🗑️ Rimuovi foto</button>
+      </div>
+
+      <div class="photoPrev" id="photoPrev" style="display:none">
+        <img id="photoPrevImg" alt="Anteprima foto">
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn ok" id="btnSave" type="button">✅ Salva</button>
+        <button class="btn" id="btnClear" type="button">🧽 Pulisci</button>
+      </div>
+
+      <div class="hint" style="margin-top:10px">
+        Scanner: ritaglio/rotazione/contrasto senza OCR (stabile).
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETAILS -->
+<div class="modal" id="modalDetails" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3 id="mTitle">Dettagli</h3>
+      <button class="btn small" id="mClose" type="button">✖</button>
+    </div>
+    <div class="mb">
+      <div class="muted" id="mMeta" style="margin-bottom:10px"></div>
+      <img id="mImg" class="preview" alt="Anteprima scontrino" style="display:none">
+      <div class="row" style="margin-top:12px; justify-content:space-between">
+        <button class="btn small" id="mEdit" type="button">✏️ Modifica</button>
+        <button class="btn small bad" id="mDelete" type="button">🗑️ Elimina</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL BUDGET -->
+<div class="modal" id="modalBudget" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3>🎯 Budget mensile</h3>
+      <button class="btn small" id="budgetClose" type="button">✖</button>
+    </div>
+    <div class="mb">
+      <label>Budget totale del mese (€)</label>
+      <input id="budgetInput" inputmode="decimal" placeholder="es: 700,00" />
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn ok" id="budgetSave" type="button">✅ Salva</button>
+        <button class="btn bad" id="budgetClear" type="button">🗑️ Rimuovi</button>
+      </div>
+
+      <div class="hint" style="margin-top:10px">
+        Il budget è salvato per mese.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL SCANNER -->
+<div class="modal" id="modalScanner" aria-hidden="true">
+  <div class="box">
+    <div class="mh">
+      <h3>🪄 Scanner scontrino</h3>
+      <button class="btn small" id="scannerClose" type="button">✖</button>
+    </div>
+
+    <div class="mb">
+      <div class="scannerStage">
+        <canvas id="scanCanvas"></canvas>
+      </div>
+
+      <div class="scannerGrid">
+        <div>
+          <label>Rotazione</label>
+          <div class="row">
+            <button class="btn small" id="rotL" type="button">↺</button>
+            <button class="btn small" id="rotR" type="button">↻</button>
+          </div>
+        </div>
+
+        <div>
+          <label>Contrasto</label>
+          <input id="scanContrast" type="range" min="0.6" max="1.8" step="0.05" value="1.15">
+        </div>
+
+        <div>
+          <label>Luminosità</label>
+          <input id="scanBright" type="range" min="-30" max="30" step="1" value="8">
+        </div>
+
+        <div>
+          <label>Ritaglio (margini %)</label>
+          <div class="cropGrid">
+            <div><span class="muted">Sx</span><input id="cropL" type="range" min="0" max="30" step="1" value="2"></div>
+            <div><span class="muted">Dx</span><input id="cropR" type="range" min="0" max="30" step="1" value="2"></div>
+            <div><span class="muted">Su</span><input id="cropT" type="range" min="0" max="30" step="1" value="2"></div>
+            <div><span class="muted">Giù</span><input id="cropB" type="range" min="0" max="30" step="1" value="2"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn ok" id="applyScan" type="button">✅ Applica alla foto</button>
+        <button class="btn" id="resetScan" type="button">🔄 Reset</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast" aria-live="polite" aria-atomic="true"></div>
+
+<!-- Camera modal (v26.5) -->
+<div id="camModal" class="modal" aria-hidden="true" style="display:none">
+  <div class="modal__backdrop" data-cam-close></div>
+  <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="camTitle">
+    <div class="modal__header">
+      <div class="modal__title" id="camTitle">Fai foto scontrino</div>
+      <button class="iconbtn" type="button" data-cam-close aria-label="Chiudi">✕</button>
+    </div>
+    <div class="modal__body">
+      <video id="camVideo" playsinline autoplay muted></video>
+      <canvas id="camCanvas" style="display:none"></canvas>
+      <div class="row" style="display:flex; gap:10px; margin-top:10px; justify-content:space-between; flex-wrap:wrap">
+        <button id="camShot" type="button" class="btn primary">Scatta</button>
+        <button id="camSwitch" type="button" class="btn">Cambia camera</button>
+        <button id="camUse" type="button" class="btn success" disabled>Usa foto</button>
+      </div>
+      <div class="smallmuted" style="margin-top:8px">Suggerimento: inquadra bene “Totale complessivo” e la data.</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
