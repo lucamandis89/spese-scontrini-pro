@@ -1,0 +1,1 @@
+self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',e=>{e.waitUntil((async()=>{try{const k=await caches.keys();await Promise.all(k.map(x=>caches.delete(x)));}catch(e){};try{await self.registration.unregister();}catch(e){};try{await self.clients.claim();}catch(e){};})());});
