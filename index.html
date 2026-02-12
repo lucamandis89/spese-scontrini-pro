@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+
+<html lang="it">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1,maximum-scale=1" name="viewport"/>
+<meta content="#0b0f17" name="theme-color"/>
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Scontrini Facili Pro</title>
+<link href="./manifest.webmanifest?v=33.2" rel="manifest"/>
+<link href="./assets/logo.svg" rel="icon" type="image/svg+xml"/>
+<link href="./style.css?v=33.2" rel="stylesheet"/>
+<script defer="" src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script defer="" src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script defer="" src="./app.js?v=33.2"></script>
+<script>
+// SSP_SW_UNREGISTER v21.8
+(async function(){
+  try{
+    if('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for(const r of regs){ try{ await r.unregister(); }catch(e){} }
+    }
+  }catch(e){}
+})();
+</script>
+</head>
+<body>
+<header class="appHeader">
+<div class="wrap topbar">
+<div class="brand">
+<div aria-hidden="true" class="appIcon"></div>
+<div class="brandText">
+<div class="title">Spese &amp; Scontrini <span class="muted">PRO</span></div>
+<div class="subtitle" id="headerSubtitle">Offline • PDF • Foto scontrini • Backup
+</div>
+</div>
+</div>
+<div class="pill">Stato: <b id="proState">FREE</b></div>
+</div>
+</header>
+<main class="appMain">
+<!-- HOME -->
+<section class="page active" data-page="home">
+<div class="wrap">
+<div class="card">
+<div class="hd">
+<div>
+<h2>Dashboard</h2>
+<div class="sub">Totali + Budget</div>
+</div>
+<button class="btn small" id="btnProToggle" type="button">✨ Test PRO</button>
+</div>
+<div class="bd">
+<div class="stats">
+<div class="stat">
+<div class="k">Totale mese</div>
+<div class="v" id="statMonth">€ 0,00</div>
+</div>
+<div class="stat">
+<div class="k">Totale anno</div>
+<div class="v" id="statYear">€ 0,00</div>
+</div>
+</div>
+<div class="divider"></div>
+<!-- BUDGET -->
+<div class="budgetCard">
+<div class="budgetTop">
+<div>
+<div class="budgetTitle">Budget mensile</div>
+<div class="budgetSub muted" id="budgetSub">Imposta un budget per vedere il progresso</div>
+</div>
+<button class="btn small" id="btnBudget" type="button">🎯 Imposta</button>
+</div>
+<div class="budgetBarWrap">
+<div class="budgetBar" id="budgetBar"></div>
+</div>
+<div class="budgetRow muted">
+<span id="budgetLeft">—</span>
+<span id="budgetPct">—</span>
+</div>
+</div>
+<div class="hint" id="freeHint" style="margin-top:12px">
+            Versione <b>FREE</b>: massimo <b>30</b> spese e <b>3</b> PDF al mese (PDF con watermark).
+          </div>
+<div class="divider"></div>
+<div class="row">
+<button class="btn primary" id="goArchive" type="button">📂 Vai in Archivio</button>
+<button class="btn" id="goReport" type="button">📄 Vai in Report</button>
+</div>
+<div class="divider"></div>
+<h3 class="miniTitle">Ultime spese</h3>
+<div class="list" id="recentList"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- ARCHIVIO -->
+<section class="page" data-page="archive">
+<div class="wrap">
+<div class="card">
+<div class="toolbar">
+<div class="field small">
+<label class="toolbarLabel">Mese</label>
+<input id="fMonth" type="month"/>
+</div>
+<div class="field">
+<label class="toolbarLabel">Categoria</label>
+<select id="fCategory"></select>
+</div>
+<div class="field">
+<label class="toolbarLabel">Cerca</label>
+<input id="fSearch" placeholder="es: benzina / farmacia / scuola..."/>
+</div>
+<div class="right-actions">
+<div aria-label="Vista archivio" class="seg" role="group">
+<button class="segBtn active" id="viewList" type="button">Lista</button>
+<button class="segBtn" id="viewTimeline" type="button">Timeline</button>
+</div>
+<button class="btn small" id="btnClearFilters" type="button">🧼 Filtri</button>
+</div>
+</div>
+<div class="bd">
+<div class="notice">
+            Badge “Detraibile” appare sulle categorie CAF/ISEE.
+          </div>
+<div class="listHeader">
+<div class="muted" id="countLabel">0 spese</div>
+<div class="muted" id="sumLabel">Totale filtro: € 0,00</div>
+</div>
+<div class="list" id="list"></div>
+<div class="timeline" id="timeline" style="display:none"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- REPORT -->
+<section class="page" data-page="report">
+<div class="wrap">
+<div class="card">
+<div class="hd">
+<div>
+<h2>Report</h2>
+<div class="sub">PDF + Analisi categorie</div>
+</div>
+</div>
+<div class="bd">
+<div class="two">
+<div>
+<label>Mese report</label>
+<input id="rMonth" type="month"/>
+</div>
+<div>
+<label>Tipo report</label>
+<select id="rMode">
+<option value="month">Report Mensile</option>
+<option value="caf">Report CAF/ISEE</option>
+</select>
+</div>
+</div>
+<div id="ocrPanelReport" class="card" style="display:none; margin-top:12px">
+  <div class="row" style="align-items:center; justify-content:space-between">
+    <div><b>Risultato OCR</b> <span class="muted" id="ocrStatusReport" style="font-size:12px; margin-left:6px"></span></div>
+    <div class="row" style="gap:8px">
+      <button class="btn small" id="btnOcrCopyReport" type="button">Copia</button>
+      <button class="btn small" id="btnOcrDownloadReport" type="button">Scarica testo</button>
+    </div>
+  </div>
+  <textarea id="ocrTextReport" style="width:100%; min-height:120px; margin-top:10px" placeholder="Qui comparirà il testo OCR..."></textarea>
+</div>
+<div class="row" style="margin-top:12px">
+<button class="btn primary" id="btnMakePdf" type="button">📄 Genera PDF</button>
+<button class="btn" id="btnBackup" type="button">⬇️ Esporta backup</button>
+<label class="btn" style="cursor:pointer">
+              ⬆️ Importa backup
+              <input accept="application/json" id="inRestore" style="display:none" type="file"/>
+</label>
+</div>
+<div class="divider"></div>
+<!-- ANALISI / GRAFICO -->
+<div class="anaCard">
+<div class="anaTop">
+<div>
+<div class="miniTitle" style="margin:0">Analisi categorie</div>
+<div class="muted" style="font-size:12px">Bar chart + Top categorie</div>
+</div>
+<label class="chip">
+<input id="anaOnlyCaf" type="checkbox"/>
+<span>Solo detraibili</span>
+</label>
+</div>
+<div class="anaBars" id="anaBars"></div>
+<div class="anaList" id="anaList"></div>
+</div>
+<div class="divider"></div>
+<div class="row">
+<button class="btn bad" id="btnWipeAll" type="button">🗑️ Reset totale</button>
+</div>
+<div class="hint" style="margin-top:12px">
+            CAF/ISEE include solo: Farmacia/Mediche, Scuola, Bambini, Assicurazioni, Casa, Bollette.
+          </div>
+</div>
+</div>
+</div>
+</section><section class="page" data-page="settings"><div class="wrap"><div class="card"><div class="hd"><div><h2>Impostazioni</h2><div class="sub">Configurazione app</div></div></div><div class="bd"><div class="panel"><div class="ptitle">OCR (lettura importo/data)</div><p class="muted">Chiave preimpostata inclusa. Puoi sostituirla in qualsiasi momento.</p><div class="formRow"><label>API Key</label><input autocomplete="off" id="ocrKeyInput" spellcheck="false" type="text"/></div></div><div class="panel"><div class="ptitle">Lingua</div><div class="formRow"><label>Seleziona lingua</label><select id="langSelect"><option value="it">Italiano</option><option value="en">English</option></select></div></div><div class="rowActions"><button class="btn" id="btnSaveSettings" type="button">Salva impostazioni</button><button class="btn ghost" id="btnResetApp" type="button">Reset dati app</button></div></div></div></div></section>
+<!-- FAB -->
+<button aria-label="Aggiungi spesa" class="fab" id="fabAdd">＋</button>
+<button aria-label="Scatta foto scontrino" class="fab fabCam" id="fabCam">📷</button>
+<!-- Bottom nav -->
+<nav class="bottomNav">
+<button class="navBtn active" data-nav="home" type="button"><span class="ico">🏠</span><span class="label">Home</span></button>
+<button class="navBtn" data-nav="archive" type="button"><span class="ico">📂</span><span class="label">Archivio</span></button>
+<button class="navBtn" data-nav="report" type="button"><span class="ico">📄</span><span class="label">Report</span></button>
+<button class="navBtn" data-nav="settings" type="button"><span class="ico">⚙️</span><span class="label">Impostazioni</span></button></nav>
+
+<section id="ocrResultPanel" class="card ocr-result" style="display:none; margin:12px;">
+  <h3 style="margin:0 0 8px 0;">Risultato OCR</h3>
+  <textarea id="ocrResultText" rows="10" style="width:100%; resize:vertical; white-space:pre-wrap;"></textarea>
+  <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+    <button class="btn" id="btnCopyOcr">Copia testo</button>
+    <button class="btn btn-primary" id="btnDownloadOcr">Scarica testo</button>
+  </div>
+</section>
+</main>
+<!-- MODAL ADD -->
+<div aria-hidden="true" class="modal" id="modalAdd">
+<div class="box">
+<div class="mh">
+<h3 id="addTitle">➕ Aggiungi spesa</h3>
+<button class="btn small" id="addClose" type="button">✖</button>
+</div>
+<div class="mb">
+<div class="two">
+<div>
+<label>Importo (€)</label>
+<input id="inAmount" inputmode="decimal" placeholder="es: 12,50">
+</input></div>
+<div>
+<label>Data</label>
+<input id="inDate" type="date">
+</input></div>
+</div>
+<label>Categoria</label>
+<select id="inCategory"></select>
+<label>Descrizione</label>
+<input id="inNote" placeholder="es: spesa supermercato / farmacia / benzina..."/>
+<label>Foto scontrino (opzionale)</label>
+<div class="receiptActions">
+<button class="btn" id="btnReceiptCamera" type="button">📷 Fai foto scontrino</button>
+<button class="btn" id="btnReceiptGallery" type="button">🖼️ Allega scontrino</button>
+</div>
+<input accept="image/*" capture="environment" hidden="" id="inPhotoCam" type="file"/>
+<input accept="image/*" hidden="" id="inPhoto" type="file"/>
+<img id="receiptPreview" class="receiptPreview" alt="Anteprima scontrino" style="display:none; max-width:100%; border-radius:12px; margin-top:10px;"/>
+<div class="hint muted" style="margin-top:6px">Se possibile, l’app prova a leggere importo e data automaticamente (OCR).</div>
+<div class="row" style="margin-top:10px">
+<button class="btn" id="btnOpenScanner" type="button">📄 OCR (offline)</button>
+<button class="btn" id="btnEnhancePhoto" type="button">🎛️ Migliora foto</button>
+<button class="btn small bad" id="removePhoto" type="button">🗑️ Rimuovi foto</button>
+</div>
+<div class="photoPrev" id="photoPrev" style="display:none">
+<img alt="Anteprima foto" id="photoPrevImg"/>
+</div>
+<div id="ocrPanel" class="card" style="display:none; margin-top:12px">
+  <div class="row" style="align-items:center; justify-content:space-between">
+    <div><b>Risultato OCR</b> <span class="muted" id="ocrStatus" style="font-size:12px; margin-left:6px"></span></div>
+    <div class="row" style="gap:8px">
+      <button class="btn small" id="btnOcrCopy" type="button">Copia</button>
+      <button class="btn small" id="btnOcrDownload" type="button">Scarica testo</button>
+    </div>
+  </div>
+  <textarea id="ocrText" style="width:100%; min-height:120px; margin-top:10px" placeholder="Qui comparirà il testo OCR..."></textarea>
+</div>
+<div class="row" style="margin-top:12px">
+<button class="btn ok" id="btnSave" type="button">✅ Salva</button>
+<button class="btn" id="btnClear" type="button">🧽 Pulisci</button>
+</div>
+<div class="hint" style="margin-top:10px">
+        Scanner: ritaglio/rotazione/contrasto senza OCR (stabile).
+      </div>
+</div>
+</div>
+</div>
+<!-- MODAL DETAILS -->
+<div aria-hidden="true" class="modal" id="modalDetails">
+<div class="box">
+<div class="mh">
+<h3 id="mTitle">Dettagli</h3>
+<button class="btn small" id="mClose" type="button">✖</button>
+</div>
+<div class="mb">
+<div class="muted" id="mMeta" style="margin-bottom:10px"></div>
+<img alt="Anteprima scontrino" class="preview" id="mImg" style="display:none"/>
+<div class="row" style="margin-top:12px; justify-content:space-between">
+<button class="btn small" id="mEdit" type="button">✏️ Modifica</button>
+<button class="btn small bad" id="mDelete" type="button">🗑️ Elimina</button>
+</div>
+</div>
+</div>
+</div>
+<!-- MODAL BUDGET -->
+<div aria-hidden="true" class="modal" id="modalBudget">
+<div class="box">
+<div class="mh">
+<h3>🎯 Budget mensile</h3>
+<button class="btn small" id="budgetClose" type="button">✖</button>
+</div>
+<div class="mb">
+<label>Budget totale del mese (€)</label>
+<input id="budgetInput" inputmode="decimal" placeholder="es: 700,00"/>
+<div class="row" style="margin-top:12px">
+<button class="btn ok" id="budgetSave" type="button">✅ Salva</button>
+<button class="btn bad" id="budgetClear" type="button">🗑️ Rimuovi</button>
+</div>
+<div class="hint" style="margin-top:10px">
+        Il budget è salvato per mese.
+      </div>
+</div>
+</div>
+</div>
+<!-- MODAL SCANNER -->
+<div aria-hidden="true" class="modal" id="modalScanner">
+<div class="box">
+<div class="mh">
+<h3>🪄 Scanner scontrino</h3>
+<button class="btn small" id="scannerClose" type="button">✖</button>
+</div>
+<div class="mb">
+<div class="scannerStage">
+<canvas id="scanCanvas"></canvas>
+</div>
+<div class="scannerGrid">
+<div>
+<label>Rotazione</label>
+<div class="row">
+<button class="btn small" id="rotL" type="button">↺</button>
+<button class="btn small" id="rotR" type="button">↻</button>
+</div>
+</div>
+<div>
+<label>Contrasto</label>
+<input id="scanContrast" max="1.8" min="0.6" step="0.05" type="range" value="1.15"/>
+</div>
+<div>
+<label>Luminosità</label>
+<input id="scanBright" max="30" min="-30" step="1" type="range" value="8"/>
+</div>
+<div>
+<label>Ritaglio (margini %)</label>
+<div class="cropGrid">
+<div><span class="muted">Sx</span><input id="cropL" max="30" min="0" step="1" type="range" value="2"/></div>
+<div><span class="muted">Dx</span><input id="cropR" max="30" min="0" step="1" type="range" value="2"/></div>
+<div><span class="muted">Su</span><input id="cropT" max="30" min="0" step="1" type="range" value="2"/></div>
+<div><span class="muted">Giù</span><input id="cropB" max="30" min="0" step="1" type="range" value="2"/></div>
+</div>
+</div>
+</div>
+<div id="ocrPanelScan" class="card" style="display:none; margin-top:12px">
+  <div class="row" style="align-items:center; justify-content:space-between">
+    <div><b>Risultato OCR</b> <span class="muted" id="ocrStatusScan" style="font-size:12px; margin-left:6px"></span></div>
+    <div class="row" style="gap:8px">
+      <button class="btn small" id="btnOcrCopyScan" type="button">Copia</button>
+      <button class="btn small" id="btnOcrDownloadScan" type="button">Scarica testo</button>
+    </div>
+  </div>
+  <textarea id="ocrTextScan" style="width:100%; min-height:120px; margin-top:10px" placeholder="Qui comparirà il testo OCR..."></textarea>
+</div>
+<div class="row" style="margin-top:12px">
+<button class="btn ok" id="applyScan" type="button">✅ Applica alla foto</button>
+<button class="btn" id="resetScan" type="button">🔄 Reset</button>
+</div>
+</div>
+</div>
+</div>
+<!-- TOAST -->
+<div aria-atomic="true" aria-live="polite" class="toast" id="toast"></div>
+<!-- Camera modal (v26.5) -->
+<div aria-hidden="true" class="modal" id="camModal" style="display:none">
+<div class="modal__backdrop" data-cam-close=""></div>
+<div aria-labelledby="camTitle" aria-modal="true" class="modal__card" role="dialog">
+<div class="modal__header">
+<div class="modal__title" id="camTitle">Fai foto scontrino</div>
+<button aria-label="Chiudi" class="iconbtn" data-cam-close="" type="button">✕</button>
+</div>
+<div class="modal__body">
+<video autoplay="" id="camVideo" muted="" playsinline=""></video>
+<canvas id="camCanvas" style="display:none"></canvas>
+<div class="row" style="display:flex; gap:10px; margin-top:10px; justify-content:space-between; flex-wrap:wrap">
+<button class="btn primary" id="camShot" type="button">Scatta</button>
+<button class="btn" id="camSwitch" type="button">Cambia camera</button>
+<button class="btn success" disabled="" id="camUse" type="button">Usa foto</button>
+</div>
+<div class="smallmuted" style="margin-top:8px">Suggerimento: inquadra bene “Totale complessivo” e la data.</div>
+</div>
+</div>
+</div>
+
+<div class="modal" id="modalPro" aria-hidden="true">
+  <div class="box card" style="max-width:520px;">
+    <h3 style="margin:0 0 6px 0;">Scontrini Facili PRO</h3>
+    <p class="muted" style="margin:0 0 10px 0;">Stato: <b id="proStatus">FREE</b></p>
+    <p style="margin:0 0 10px 0;"><b id="proReason">Funzione Premium</b></p>
+    <ul style="margin:0 0 12px 18px; padding:0;">
+      <li>OCR illimitato e completo</li>
+      <li>Esportazione PDF senza watermark</li>
+      <li>Niente pubblicità</li>
+    </ul>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <button class="btn btn-primary" id="btnBuyPro">Sblocca PRO (4,99€)</button>
+      <button class="btn" id="btnClosePro">Chiudi</button>
+    </div>
+    <p class="hint muted" style="margin:10px 0 0 0;">L’acquisto verrà gestito tramite Google Play nell’APK (TWA). Qui è solo la schermata PRO.</p>
+  </div>
+</div>
+
+</body>
+</html>
