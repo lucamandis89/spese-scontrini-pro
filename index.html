@@ -14,7 +14,7 @@
 <link href="./style.css?v=28.2" rel="stylesheet"/>
 <script defer="" src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script defer="" src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script defer="" src="./app.js?v=29.1"></script>
+<script defer="" src="./app.js?v=30.0"></script>
 <script>
 // SSP_SW_UNREGISTER v21.8
 (async function(){
@@ -28,31 +28,6 @@
 </script>
 </head>
 <body>
-<!-- __FORCE_SW_UPDATE__ -->
-
-<script>
-(function(){
-  try {
-    var BUILD_ID = "v29.8";
-    var key="__ssp_build_id";
-    var prev=localStorage.getItem(key)||"";
-    if(prev!==BUILD_ID){
-      localStorage.setItem(key, BUILD_ID);
-      if('serviceWorker' in navigator){
-        navigator.serviceWorker.getRegistrations().then(function(regs){
-          return Promise.all(regs.map(function(r){ return r.unregister(); }));
-        }).then(function(){
-          if('caches' in window) {
-            caches.keys().then(function(keys){ keys.forEach(function(k){ caches.delete(k); }); });
-          }
-          setTimeout(function(){ location.reload(true); }, 50);
-        });
-      }
-    }
-  } catch(e) {}
-})();
-</script>
-
 <header class="appHeader">
 <div class="wrap topbar">
 <div class="brand">
