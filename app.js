@@ -3035,3 +3035,270 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   }, 500);
 
 })();
+/* ================================
+   CONTROLLI v1 + MULTI-IMPORT (foto/pdf) (CHIRURGICO, APPEND-ONLY)
+   - Non rimuove né modifica funzioni esistenti: aggiunge solo guard-rails.
+   - Controlli: valida importo/data/categoria prima di SALVA (blocca solo se invalidi)
+               + anti-doppione semplice (stessa data+importo+categoria entro 3 minuti)
+   - Multi-import: selezione multipla per Foto (galleria) e PDF
+                  processa in coda 1-by-1, riusa pipeline OCR/autosalva esistente se presente.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_CONTROLLI_MULTI_V1) return;
+  window.__SSP_CONTROLLI_MULTI_V1 = true;
+
+  const log = (...a)=>{ try{ console.log("[CTRL+MULTI]", ...a); }catch(_){} };
+  const toastSafe = (m)=>{ try{ if(typeof toast==="function") toast(m); else alert(m); }catch(_){} };
+
+  const $ = (sel)=>document.querySelector(sel);
+
+  // ------------------------
+  // CONTROLLI (validation)
+  // ------------------------
+  function parseEuroToNumber(v){
+    const s = String(v ?? "").trim().replace(/\s+/g,"");
+    if(!s) return NaN;
+    // allow "10,96" or "10.96"
+    const n = Number(s.replace(/\./g,"").replace(",", "."));
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function isoToday(){
+    const d=new Date();
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,"0");
+    const day=String(d.getDate()).padStart(2,"0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function validateForm(){
+    const inAmount = $("#inAmount");
+    const inDate = $("#inDate");
+    const inCategory = $("#inCategory");
+
+    const amount = parseEuroToNumber(inAmount?.value);
+    if(!Number.isFinite(amount) || amount <= 0){
+      toastSafe("Inserisci un importo valido (> 0).");
+      try{ inAmount?.focus(); }catch(_){}
+      return false;
+    }
+    const date = (inDate?.value || "").trim();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){
+      toastSafe("Seleziona una data valida.");
+      try{ inDate?.focus(); }catch(_){}
+      return false;
+    }
+    // Prevent future dates (common mistake). If you want to allow, set window.__sspAllowFutureDates = true
+    if(!window.__sspAllowFutureDates){
+      const today = isoToday();
+      if(date > today){
+        toastSafe("La data non può essere futura.");
+        try{ inDate?.focus(); }catch(_){}
+        return false;
+      }
+    }
+    const cat = (inCategory?.value || "").trim();
+    if(!cat){
+      toastSafe("Seleziona una categoria.");
+      try{ inCategory?.focus(); }catch(_){}
+      return false;
+    }
+    return true;
+  }
+
+  // Simple anti-duplicate: same date+amount+category within 3 minutes
+  function dupKey(amount, date, cat){
+    return `${date}||${cat}||${amount.toFixed(2)}`;
+  }
+  function readLastSave(){
+    try{
+      const raw = localStorage.getItem("__sspLastSave");
+      return raw ? JSON.parse(raw) : null;
+    }catch(_){ return null; }
+  }
+  function writeLastSave(obj){
+    try{ localStorage.setItem("__sspLastSave", JSON.stringify(obj)); }catch(_){}
+  }
+
+  function shouldBlockDuplicate(){
+    try{
+      const inAmount = $("#inAmount");
+      const inDate = $("#inDate");
+      const inCategory = $("#inCategory");
+      const amount = parseEuroToNumber(inAmount?.value);
+      const date = (inDate?.value||"").trim();
+      const cat = (inCategory?.value||"").trim();
+      if(!Number.isFinite(amount) || !date || !cat) return false;
+
+      const now = Date.now();
+      const last = readLastSave();
+      const key = dupKey(amount, date, cat);
+      if(last && last.key === key && (now - (last.t||0)) < 3*60*1000){
+        toastSafe("Spesa duplicata rilevata (stesso importo/data/categoria).");
+        return true;
+      }
+      writeLastSave({ key, t: now });
+      return false;
+    }catch(_){
+      return false;
+    }
+  }
+
+  // Block invalid saves (capture phase: doesn't touch existing handlers)
+  document.addEventListener("click", (e)=>{
+    const btn = e.target?.closest ? e.target.closest("#btnSave") : null;
+    if(!btn) return;
+
+    // Validate
+    if(!validateForm()){
+      try{ e.preventDefault(); }catch(_){}
+      try{ e.stopPropagation(); }catch(_){}
+      try{ e.stopImmediatePropagation(); }catch(_){}
+      return;
+    }
+    // Duplicate check
+    if(shouldBlockDuplicate()){
+      try{ e.preventDefault(); }catch(_){}
+      try{ e.stopPropagation(); }catch(_){}
+      try{ e.stopImmediatePropagation(); }catch(_){}
+      return;
+    }
+  }, true);
+
+  // ------------------------
+  // MULTI-IMPORT (queue)
+  // ------------------------
+  function ensureHiddenInput(id, accept, multiple){
+    let el = document.getElementById(id);
+    if(!el){
+      el = document.createElement("input");
+      el.type="file";
+      el.id=id;
+      el.style.display="none";
+      document.body.appendChild(el);
+    }
+    el.accept = accept;
+    if(multiple) el.multiple = true;
+    else el.removeAttribute("multiple");
+    return el;
+  }
+
+  const inMultiPhoto = ensureHiddenInput("inPhoto__multi", "image/*", true);
+  const inMultiPdf = ensureHiddenInput("inPdf__multi", "application/pdf", true);
+
+  let queue = [];
+  let running = false;
+
+  async function runQueue(){
+    if(running) return;
+    running = true;
+    try{
+      while(queue.length){
+        const item = queue.shift();
+        const { file, kind, idx, total } = item;
+        toastSafe(`Elaboro ${idx}/${total} (${kind})…`);
+
+        try{
+          if(kind === "foto"){
+            // Prefer the existing receipt pipeline if present
+            if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+              await window.__sspReceipt.handle(file, "multi-photo");
+            }else if(typeof window.handleReceiptOCR === "function"){
+              await window.handleReceiptOCR(file);
+            }else{
+              // Fallback: set as last receipt file (so user can save)
+              window.__sspReceipt = window.__sspReceipt || {};
+              window.__sspReceipt.file = file;
+              window.__sspReceipt.getLastFile = ()=>file;
+              toastSafe("Foto caricata. Premi Salva.");
+            }
+          }else if(kind === "pdf"){
+            // Reuse your robust PDF conversion if available, else fallback to existing PDF handlers
+            if(typeof window.__sspPdfFirstPageToPngFile === "function"){
+              const imgFile = await window.__sspPdfFirstPageToPngFile(file);
+              window.__sspReceipt = window.__sspReceipt || {};
+              window.__sspReceipt.file = imgFile;
+              window.__sspReceipt.getLastFile = ()=>imgFile;
+              if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+                await window.__sspReceipt.handle(imgFile, "multi-pdf");
+              }else{
+                toastSafe("PDF importato. Premi Salva.");
+              }
+            }else{
+              // Last resort: trigger the existing single PDF flow by calling the robust v3 input handler if present
+              // (User can still save manually)
+              toastSafe("PDF caricato. Se OCR non parte, usa OCR manuale.");
+            }
+          }
+        }catch(err){
+          log("Queue item error", err);
+          toastSafe(`Errore su ${kind} (${idx}/${total}).`);
+        }
+      }
+      toastSafe("Multi-import completato ✅");
+    }finally{
+      running = false;
+    }
+  }
+
+  function enqueueFiles(files, kind){
+    const arr = Array.from(files || []);
+    if(!arr.length) return;
+    const total = arr.length;
+    arr.forEach((file, i)=>{
+      queue.push({ file, kind, idx: i+1, total });
+    });
+    runQueue();
+  }
+
+  // Intercept existing buttons (does NOT break single-import; this adds multi picker)
+  document.addEventListener("click", (e)=>{
+    const btnGallery = e.target?.closest ? e.target.closest("#btnReceiptGallery") : null;
+    if(btnGallery){
+      try{ inMultiPhoto.value=""; }catch(_){}
+      inMultiPhoto.click();
+      try{ e.preventDefault(); }catch(_){}
+      return;
+    }
+    const btnPdf = e.target?.closest ? e.target.closest("#btnReceiptPdfMulti") : null;
+    if(btnPdf){
+      try{ inMultiPdf.value=""; }catch(_){}
+      inMultiPdf.click();
+      try{ e.preventDefault(); }catch(_){}
+      return;
+    }
+  }, true);
+
+  inMultiPhoto.addEventListener("change", ()=>{
+    enqueueFiles(inMultiPhoto.files, "foto");
+    try{ inMultiPhoto.value=""; }catch(_){}
+  });
+
+  inMultiPdf.addEventListener("change", ()=>{
+    enqueueFiles(inMultiPdf.files, "pdf");
+    try{ inMultiPdf.value=""; }catch(_){}
+  });
+
+  // Add a small extra button for multi-pdf inside modal if possible (safe)
+  function injectMultiPdfButton(){
+    try{
+      const row = document.querySelector("#modalAdd .row") || document.querySelector("#modalAdd");
+      if(!row) return;
+      if(document.getElementById("btnReceiptPdfMulti")) return;
+
+      const b = document.createElement("button");
+      b.type="button";
+      b.id="btnReceiptPdfMulti";
+      b.className="btn";
+      b.textContent="📄 Importa PDF (multi)";
+      row.appendChild(b);
+    }catch(_){}
+  }
+
+  document.addEventListener("DOMContentLoaded", injectMultiPdfButton);
+  // In case modal is built later
+  setTimeout(injectMultiPdfButton, 1200);
+
+  log("Controlli v1 + Multi-import ready ✅");
+})();
