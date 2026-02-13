@@ -3124,3 +3124,125 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
   log("PDF import robust v3 ready ✅");
 })();
+/* PDF → salva anche miniatura scontrino (append-only) */
+(function(){
+  "use strict";
+  if (window.__SSP_PDF_PERSIST_MINI_V1) return;
+  window.__SSP_PDF_PERSIST_MINI_V1 = true;
+
+  const toastSafe = (m)=>{ try{ if(typeof toast==="function") toast(m); }catch(_){ } };
+
+  function loadScriptOnce(src){
+    window.__sspScripts = window.__sspScripts || {};
+    if (window.__sspScripts[src]) return window.__sspScripts[src];
+    window.__sspScripts[src] = new Promise((res, rej)=>{
+      const s=document.createElement("script");
+      s.src=src; s.async=true;
+      s.onload=()=>res(true);
+      s.onerror=()=>rej(new Error("Load failed: "+src));
+      document.head.appendChild(s);
+    });
+    return window.__sspScripts[src];
+  }
+
+  async function ensurePdfJsReady(){
+    if (window.pdfjsLib && window.__sspPdfReady) return true;
+    if (!window.pdfjsLib){
+      await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+    }
+    if (!window.pdfjsLib) throw new Error("PDF.js missing");
+    try{
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    }catch(_){}
+    window.__sspPdfReady = true;
+    return true;
+  }
+
+  async function pdfFirstPageToImageFile(pdfFile){
+    await ensurePdfJsReady();
+    const buf = await pdfFile.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.6 });
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+    canvas.width  = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const blob = await new Promise((res)=> canvas.toBlob(res, "image/jpeg", 0.92));
+    if (!blob) throw new Error("Render PDF fallito");
+    const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
+    return new File([blob], name, { type:"image/jpeg" });
+  }
+
+  // input dedicato (mai distrutto)
+  function getInput(){
+    let el = document.querySelector("#inPdf__persistMini_v1");
+    if(!el){
+      el=document.createElement("input");
+      el.type="file"; el.accept="application/pdf";
+      el.id="inPdf__persistMini_v1";
+      el.style.display="none";
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+
+  let busy=false;
+  async function handlePdf(file){
+    if(!file || busy) return;
+    busy=true;
+    try{
+      toastSafe("Importo PDF…");
+      const imgFile = await pdfFirstPageToImageFile(file);
+
+      // ✅ CHIAVE: rende la “foto” disponibile al salvataggio
+      window.__sspReceipt = window.__sspReceipt || {};
+      window.__sspReceipt.file = imgFile;
+      window.__sspReceipt.getLastFile = () => imgFile;
+
+      // preview (se presente)
+      try{
+        const url = URL.createObjectURL(imgFile);
+        const im = document.querySelector("#photoPrevImg") || document.querySelector("#receiptPreview");
+        const wrap = document.querySelector("#photoPrev");
+        if(im){
+          im.src = url;
+          if(wrap) wrap.style.display = "block";
+          else im.style.display = "";
+        }
+      }catch(_){}
+
+      toastSafe("PDF importato ✅");
+
+      // OCR se disponibile
+      try{
+        if(typeof window.__sspReceipt.handle === "function"){
+          await window.__sspReceipt.handle(imgFile, "pdf");
+        }
+      }catch(_){}
+    }catch(_){
+      toastSafe("PDF non valido / non leggibile");
+    }finally{
+      busy=false;
+    }
+  }
+
+  const input = getInput();
+
+  // prende click anche se tocchi l’icona/testo nel bottone
+  document.addEventListener("click", (e)=>{
+    const btn = e.target && e.target.closest ? e.target.closest("#btnReceiptPdf") : null;
+    if(!btn) return;
+    try{ input.value=""; }catch(_){}
+    try{ input.click(); }catch(_){}
+    try{ e.preventDefault(); }catch(_){}
+  }, true);
+
+  input.addEventListener("change", async ()=>{
+    const file = input.files && input.files[0];
+    await handlePdf(file);
+    try{ input.value=""; }catch(_){}
+  });
+})();
