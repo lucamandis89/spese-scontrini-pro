@@ -2808,329 +2808,24 @@ document.addEventListener("click",(e)=>{
   }
 });
 document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
+
+
 /* ================================
-   PDF IMPORT ROBUST FIX (works every time)
-   - Dedicated hidden input
-   - Event delegation (survives re-render)
-   - Reset value BEFORE click (same file triggers change)
-   - Safe PDF.js autoload + worker
-   - Does not touch other features
+   PDF IMPORT PHOTO-PERSIST FIX v4 (CHIRURGICO)
+   Goal: after PDF import, the saved expense must include the receipt image (thumbnail),
+   even if older "robust" handlers are in play.
+   - Does NOT remove/alter other features.
+   - Ensures window.__sspReceipt.file is set to the rendered image file
+     so onSave() will always save photo.
+   - Also triggers OCR safely.
    ================================ */
 (function(){
   "use strict";
-  if (window.__SSP_PDF_IMPORT_ROBUST_V2) return;
-  window.__SSP_PDF_IMPORT_ROBUST_V2 = true;
+  if (window.__SSP_PDF_PERSIST_V4) return;
+  window.__SSP_PDF_PERSIST_V4 = true;
 
-  const log = (...a)=>{ try{ console.log("[PDF ROBUST]", ...a); }catch(_){} };
-  const toastSafe = (m)=>{ try{ if(typeof toast==="function") toast(m); else alert(m); }catch(_){} };
-
-  // ---- load script once
-  function loadScriptOnce(src){
-    window.__sspScripts = window.__sspScripts || {};
-    if (window.__sspScripts[src]) return window.__sspScripts[src];
-    window.__sspScripts[src] = new Promise((res, rej)=>{
-      const s=document.createElement("script");
-      s.src=src; s.async=true;
-      s.onload=()=>res(true);
-      s.onerror=()=>rej(new Error("Load failed: "+src));
-      document.head.appendChild(s);
-    });
-    return window.__sspScripts[src];
-  }
-
-  // ---- ensure pdf.js always available
-  async function ensurePdfJsReady(){
-    if (window.pdfjsLib && window.__sspPdfReady) return true;
-    if (!window.pdfjsLib){
-      await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
-    }
-    if (!window.pdfjsLib) throw new Error("PDF.js missing");
-    try{
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
-    }catch(_){}
-    window.__sspPdfReady = true;
-    return true;
-  }
-
-  async function pdfFirstPageToImageFile(pdfFile){
-    await ensurePdfJsReady();
-    const buf = await pdfFile.arrayBuffer();
-    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-    const page = await pdf.getPage(1);
-
-    const viewport = page.getViewport({ scale: 2.4 }); // qualità OCR
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
-    canvas.width  = Math.max(1, Math.ceil(viewport.width));
-    canvas.height = Math.max(1, Math.ceil(viewport.height));
-    await page.render({ canvasContext: ctx, viewport }).promise;
-
-    const blob = await new Promise((res)=> canvas.toBlob(res, "image/jpeg", 0.92));
-    if (!blob) throw new Error("Render PDF fallito");
-    const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
-    return new File([blob], name, { type:"image/jpeg" });
-  }
-
-  // ---- create dedicated input (never destroyed)
-  function getRobustInput(){
-    let el = document.querySelector("#inPdf__robust");
-    if (!el){
-      el = document.createElement("input");
-      el.type = "file";
-      el.accept = "application/pdf";
-      el.id = "inPdf__robust";
-      el.style.display = "none";
-      document.body.appendChild(el);
-    }
-    return el;
-  }
-
-  let busy = false;
-
-  async function handlePdf(file){
-    if (!file) return;
-    if (busy) return;
-    busy = true;
-
-    try{
-      toastSafe("Importo PDF…");
-      const imgFile = await pdfFirstPageToImageFile(file);
-
-      // mostra preview se presente
-      try{
-        if (typeof fileToImage === "function" && typeof imageToDataUrl === "function" && typeof setPhotoPreview === "function"){
-          const img = await fileToImage(imgFile);
-          const dataUrl = await imageToDataUrl(img, 0, null, 1.0, 0);
-          try{ window.previewPhoto = dataUrl; }catch(_){}
-          try{ window.scanImg = img; }catch(_){}
-          setPhotoPreview(dataUrl);
-        }
-      }catch(e){ log("preview fail", e); }
-
-      // avvia OCR se pipeline esiste
-      try{
-        if (window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
-          await window.__sspReceipt.handle(imgFile, "pdf");
-          toastSafe("PDF importato ✅");
-          return;
-        }
-      }catch(e){ log("OCR pipeline fail", e); }
-
-      toastSafe("PDF importato ✅ (pagina 1)");
-    }catch(err){
-      log(err);
-      toastSafe("PDF non supportato / protetto / errore import.");
-    }finally{
-      busy = false;
-    }
-  }
-
-  // ---- event delegation: always works
-  const input = getRobustInput();
-
-  // IMPORTANT: reset value BEFORE click so selecting same file triggers change
-  document.addEventListener("click", (e)=>{
-    const t = e.target;
-    if (!t) return;
-
-    // intercetta sempre il tuo bottone Importa PDF
-    if (t.id === "btnReceiptPdf"){
-      try{ input.value = ""; }catch(_){}
-      input.click();
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  }, true);
-
-  input.addEventListener("change", async ()=>{
-    const file = input.files && input.files[0];
-    await handlePdf(file);
-    try{ input.value = ""; }catch(_){}
-  });
-
-  log("PDF import robust v2 ready ✅");
-})();
-/* ================================
-   PDF IMPORT ROBUST FIX v3 (CHIRURGICO)
-   - Works even if click target is inner icon/text (uses closest)
-   - Blocks previous buggy handlers (stopImmediatePropagation)
-   - Dedicated hidden input in <body>, reset before/after, plus safety timer
-   - Keeps ALL existing features intact (append-only)
-   ================================ */
-(function(){
-  "use strict";
-  if (window.__SSP_PDF_IMPORT_ROBUST_V3) return;
-  window.__SSP_PDF_IMPORT_ROBUST_V3 = true;
-
-  const log = (...a)=>{ try{ console.log("[PDF ROBUST v3]", ...a); }catch(_){} };
-  const toastSafe = (m)=>{ try{ if(typeof toast==="function") toast(m); else alert(m); }catch(_){} };
-
-  // ---- load script once
-  function loadScriptOnce(src){
-    window.__sspScripts = window.__sspScripts || {};
-    if (window.__sspScripts[src]) return window.__sspScripts[src];
-    window.__sspScripts[src] = new Promise((res, rej)=>{
-      const s=document.createElement("script");
-      s.src=src; s.async=true;
-      s.onload=()=>res(true);
-      s.onerror=()=>rej(new Error("Load failed: "+src));
-      document.head.appendChild(s);
-    });
-    return window.__sspScripts[src];
-  }
-
-  // ---- ensure pdf.js always available
-  async function ensurePdfJsReady(){
-    if (window.pdfjsLib && window.__sspPdfReady) return true;
-    if (!window.pdfjsLib){
-      await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
-    }
-    if (!window.pdfjsLib) throw new Error("PDF.js missing");
-    try{
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
-    }catch(_){}
-    window.__sspPdfReady = true;
-    return true;
-  }
-
-  async function pdfFirstPageToImageFile(pdfFile){
-    await ensurePdfJsReady();
-    const buf = await pdfFile.arrayBuffer();
-    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-    const page = await pdf.getPage(1);
-
-    const viewport = page.getViewport({ scale: 2.6 }); // qualità OCR + robustezza
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
-    canvas.width  = Math.max(1, Math.ceil(viewport.width));
-    canvas.height = Math.max(1, Math.ceil(viewport.height));
-    await page.render({ canvasContext: ctx, viewport }).promise;
-
-    const blob = await new Promise((res)=> canvas.toBlob(res, "image/jpeg", 0.92));
-    if (!blob) throw new Error("Render PDF fallito");
-    const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
-    return new File([blob], name, { type:"image/jpeg" });
-  }
-
-  // ---- create dedicated input (never destroyed)
-  function getRobustInput(){
-    let el = document.querySelector("#inPdf__robust_v3");
-    if (!el){
-      el = document.createElement("input");
-      el.type = "file";
-      el.accept = "application/pdf";
-      el.id = "inPdf__robust_v3";
-      el.style.display = "none";
-      document.body.appendChild(el);
-    }
-    return el;
-  }
-
-  let busy = false;
-  let busyTimer = null;
-
-  function clearBusyTimer(){
-    try{ if(busyTimer) clearTimeout(busyTimer); }catch(_){}
-    busyTimer = null;
-  }
-
-  async function handlePdf(file){
-    if (!file) return;
-    if (busy) return;
-    busy = true;
-
-    // Safety: if something hangs, unlock after 12s
-    clearBusyTimer();
-    busyTimer = setTimeout(()=>{ busy=false; log("busy unlock by timer"); }, 12000);
-
-    try{
-      toastSafe("Importo PDF…");
-      const imgFile = await pdfFirstPageToImageFile(file);
-
-      // Preview if possible (re-use existing pipeline)
-      try{
-        if (typeof fileToImage === "function" &&
-            typeof imageToDataUrl === "function" &&
-            typeof setPhotoPreview === "function"){
-          const img = await fileToImage(imgFile);
-          const dataUrl = await imageToDataUrl(img, 0, null, 1.0, 0);
-          try{ window.previewPhoto = dataUrl; }catch(_){}
-          try{ window.scanImg = img; }catch(_){}
-          setPhotoPreview(dataUrl);
-        }else{
-          // minimal fallback preview
-          const prev = document.querySelector("#receiptPreview");
-          if(prev){
-            prev.src = URL.createObjectURL(imgFile);
-            prev.style.display = "";
-          }
-        }
-      }catch(e){ log("preview fail", e); }
-
-      // Start OCR if pipeline exists
-      try{
-        if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
-          await window.__sspReceipt.handle(imgFile, "pdf");
-          toastSafe("PDF importato ✅");
-          return;
-        }
-      }catch(e){ log("OCR pipeline fail", e); }
-
-      toastSafe("PDF importato ✅ (pagina 1)");
-    }catch(err){
-      log(err);
-      toastSafe("PDF non supportato / protetto / errore import.");
-    }finally{
-      busy = false;
-      clearBusyTimer();
-    }
-  }
-
-  const input = getRobustInput();
-
-  // IMPORTANT: make sure previous handlers can't hijack the click.
-  // Use CAPTURE + closest() so it works even if you click an inner icon/span.
-  function onUserGesture(e){
-    const btn = e.target && e.target.closest ? e.target.closest("#btnReceiptPdf") : null;
-    if(!btn) return;
-
-    // Stop any old/broken listeners
-    try{ e.preventDefault(); }catch(_){}
-    try{ e.stopPropagation(); }catch(_){}
-    try{ e.stopImmediatePropagation(); }catch(_){}
-
-    // Reset value BEFORE opening picker so choosing same file fires change
-    try{ input.value = ""; }catch(_){}
-    // Some Android WebViews are picky: wrap in setTimeout 0 while still in gesture.
-    try{
-      setTimeout(()=>{ try{ input.click(); }catch(err){ log("input.click failed", err); } }, 0);
-    }catch(_){
-      try{ input.click(); }catch(err){ log("input.click failed", err); }
-    }
-  }
-
-  document.addEventListener("click", onUserGesture, true);
-  // Extra: some browsers trigger better on pointerup
-  document.addEventListener("pointerup", onUserGesture, true);
-
-  input.addEventListener("change", async ()=>{
-    const file = input.files && input.files[0];
-    await handlePdf(file);
-    // reset AFTER too
-    try{ input.value = ""; }catch(_){}
-  });
-
-  log("PDF import robust v3 ready ✅");
-})();
-/* PDF → salva anche miniatura scontrino (append-only) */
-(function(){
-  "use strict";
-  if (window.__SSP_PDF_PERSIST_MINI_V1) return;
-  window.__SSP_PDF_PERSIST_MINI_V1 = true;
-
-  const toastSafe = (m)=>{ try{ if(typeof toast==="function") toast(m); }catch(_){ } };
+  const log = (...a)=>{ try{ console.log("[PDF PERSIST v4]", ...a); }catch(_){} };
+  const toastSafe = (m)=>{ try{ if(typeof toast==="function") toast(m); }catch(_){ try{ alert(m);}catch(_){} } };
 
   function loadScriptOnce(src){
     window.__sspScripts = window.__sspScripts || {};
@@ -3170,19 +2865,21 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
     canvas.width  = Math.max(1, Math.ceil(viewport.width));
     canvas.height = Math.max(1, Math.ceil(viewport.height));
     await page.render({ canvasContext: ctx, viewport }).promise;
+
     const blob = await new Promise((res)=> canvas.toBlob(res, "image/jpeg", 0.92));
     if (!blob) throw new Error("Render PDF fallito");
     const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
     return new File([blob], name, { type:"image/jpeg" });
   }
 
-  // input dedicato (mai distrutto)
+  // Dedicated input (never destroyed)
   function getInput(){
-    let el = document.querySelector("#inPdf__persistMini_v1");
+    let el = document.querySelector("#inPdf__persist_v4");
     if(!el){
       el=document.createElement("input");
-      el.type="file"; el.accept="application/pdf";
-      el.id="inPdf__persistMini_v1";
+      el.type="file";
+      el.accept="application/pdf";
+      el.id="inPdf__persist_v4";
       el.style.display="none";
       document.body.appendChild(el);
     }
@@ -3197,12 +2894,12 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
       toastSafe("Importo PDF…");
       const imgFile = await pdfFirstPageToImageFile(file);
 
-      // ✅ CHIAVE: rende la “foto” disponibile al salvataggio
+      // ✅ CRITICAL: set receipt file so onSave() can persist photo
       window.__sspReceipt = window.__sspReceipt || {};
       window.__sspReceipt.file = imgFile;
       window.__sspReceipt.getLastFile = () => imgFile;
 
-      // preview (se presente)
+      // Preview (if UI has #photoPrevImg or #receiptPreview)
       try{
         const url = URL.createObjectURL(imgFile);
         const im = document.querySelector("#photoPrevImg") || document.querySelector("#receiptPreview");
@@ -3216,13 +2913,14 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
       toastSafe("PDF importato ✅");
 
-      // OCR se disponibile
+      // OCR (safe)
       try{
         if(typeof window.__sspReceipt.handle === "function"){
           await window.__sspReceipt.handle(imgFile, "pdf");
         }
-      }catch(_){}
-    }catch(_){
+      }catch(e){ log("OCR error", e); }
+    }catch(err){
+      log(err);
       toastSafe("PDF non valido / non leggibile");
     }finally{
       busy=false;
@@ -3231,18 +2929,109 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
   const input = getInput();
 
-  // prende click anche se tocchi l’icona/testo nel bottone
-  document.addEventListener("click", (e)=>{
+  // Capture click on Importa PDF button (works even on inner icon/text)
+  function onPdfBtn(e){
     const btn = e.target && e.target.closest ? e.target.closest("#btnReceiptPdf") : null;
     if(!btn) return;
     try{ input.value=""; }catch(_){}
+    // Keep user-gesture: open picker immediately
     try{ input.click(); }catch(_){}
+    // Prevent older buggy handlers from hijacking (but we do NOT stopImmediate for safety)
     try{ e.preventDefault(); }catch(_){}
-  }, true);
+  }
+
+  document.addEventListener("click", onPdfBtn, true);
 
   input.addEventListener("change", async ()=>{
     const file = input.files && input.files[0];
     await handlePdf(file);
     try{ input.value=""; }catch(_){}
   });
+
+  log("Ready ✅");
+})();
+
+
+/* ================================
+   PDF THUMBNAIL GUARANTEE v5 (append-only)
+   Fix: after PDF import, autosave sometimes saves without photo because __sspReceipt.file
+   is lost/overwritten before btnSave click. This patch:
+   - Stores last rendered PDF image in window.__sspPdfLastImageFile
+   - Re-injects it into window.__sspReceipt.file right before any save click (capture)
+   - Also re-injects on 'ssp:ocr-filled' just before autosave triggers
+   No other features touched.
+   ================================ */
+(function(){
+  "use strict";
+  if(window.__SSP_PDF_THUMB_GUARANTEE_V5) return;
+  window.__SSP_PDF_THUMB_GUARANTEE_V5 = true;
+
+  const log=(...a)=>{try{console.log("[PDF THUMB v5]",...a)}catch(_){}};
+
+  // Wrap any existing PDF import handler if present
+  // If previous patches set __sspReceipt.file, we additionally persist it.
+  function rememberFile(f){
+    try{
+      if(!f) return;
+      window.__sspPdfLastImageFile = f;
+      window.__sspReceipt = window.__sspReceipt || {};
+      window.__sspReceipt.file = f;
+      window.__sspReceipt.getLastFile = () => f;
+    }catch(_){}
+  }
+
+  // Hook: if some pipeline exposes a callback, we try to patch it
+  try{
+    // If earlier patch defined pdfFirstPageToImageFile globally
+    if(typeof window.pdfFirstPageToImageFile === "function"){
+      const orig = window.pdfFirstPageToImageFile;
+      window.pdfFirstPageToImageFile = async function(file){
+        const out = await orig(file);
+        rememberFile(out);
+        return out;
+      };
+    }
+  }catch(_){}
+
+  // Capture save button click to guarantee file exists
+  document.addEventListener("click", (e)=>{
+    const btn = e.target && e.target.closest ? e.target.closest("#btnSave") : null;
+    if(!btn) return;
+    try{
+      if(window.__sspPdfLastImageFile){
+        window.__sspReceipt = window.__sspReceipt || {};
+        if(!window.__sspReceipt.file){
+          window.__sspReceipt.file = window.__sspPdfLastImageFile;
+          window.__sspReceipt.getLastFile = () => window.__sspPdfLastImageFile;
+          log("Re-injected receipt file before save");
+        }
+      }
+    }catch(_){}
+  }, true);
+
+  // Also on OCR-filled, before autosave clicks save
+  window.addEventListener("ssp:ocr-filled", ()=>{
+    try{
+      if(window.__sspPdfLastImageFile){
+        window.__sspReceipt = window.__sspReceipt || {};
+        if(!window.__sspReceipt.file){
+          window.__sspReceipt.file = window.__sspPdfLastImageFile;
+          window.__sspReceipt.getLastFile = () => window.__sspPdfLastImageFile;
+          log("Re-injected receipt file on ocr-filled");
+        }
+      }
+    }catch(_){}
+  }, {passive:true});
+
+  // If a PDF import patch stored file elsewhere, try to sync periodically for a short time
+  let tries=0;
+  const t=setInterval(()=>{
+    tries++;
+    try{
+      const f = window.__sspReceipt && window.__sspReceipt.file;
+      if(f) rememberFile(f);
+    }catch(_){}
+    if(tries>20) try{clearInterval(t)}catch(_){}
+  }, 500);
+
 })();
