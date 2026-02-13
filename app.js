@@ -3302,3 +3302,4 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
   log("Controlli v1 + Multi-import ready ✅");
 })();
+https://github.com/lucamandis89/spese-scontrini-pro/blob/c7a90222029a291ba093abbd95dd2a0de18580de/app.js
