@@ -3303,3 +3303,223 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   log("Controlli v1 + Multi-import ready ✅");
 })();
 https://github.com/lucamandis89/spese-scontrini-pro/blob/c7a90222029a291ba093abbd95dd2a0de18580de/app.js
+/* ================================
+   MULTI PDF IMPORT v2 (CHIRURGICO, APPEND-ONLY)
+   Fix: selecting multiple PDFs then OK did nothing / didn't load.
+   - Dedicated multi-PDF input with multiple
+   - Resets value before opening picker (same files work)
+   - PDF.js autoload + worker
+   - Converts each PDF first page -> JPEG image
+   - Feeds existing OCR/autosave pipeline: window.__sspReceipt.handle(imgFile, "multi-pdf")
+   - Also sets __sspReceipt.file + __sspPdfLastImageFile for thumbnail persistence
+   - Does NOT modify/remove other features.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_MULTI_PDF_V2) return;
+  window.__SSP_MULTI_PDF_V2 = true;
+
+  const log = (...a)=>{ try{ console.log("[MULTI PDF v2]", ...a); }catch(_){} };
+  const toastSafe = (m)=>{ try{ if(typeof toast==="function") toast(m); else alert(m); }catch(_){} };
+
+  // ---- load script once
+  function loadScriptOnce(src){
+    window.__sspScripts = window.__sspScripts || {};
+    if (window.__sspScripts[src]) return window.__sspScripts[src];
+    window.__sspScripts[src] = new Promise((res, rej)=>{
+      const s=document.createElement("script");
+      s.src=src; s.async=true;
+      s.onload=()=>res(true);
+      s.onerror=()=>rej(new Error("Load failed: "+src));
+      document.head.appendChild(s);
+    });
+    return window.__sspScripts[src];
+  }
+
+  // ---- ensure pdf.js always available
+  async function ensurePdfJsReady(){
+    if (window.pdfjsLib && window.__sspPdfReady) return true;
+    if (!window.pdfjsLib){
+      await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+    }
+    if (!window.pdfjsLib) throw new Error("PDF.js missing");
+    try{
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    }catch(_){}
+    window.__sspPdfReady = true;
+    return true;
+  }
+
+  async function pdfFirstPageToImageFile(pdfFile){
+    await ensurePdfJsReady();
+    const buf = await pdfFile.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.6 });
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+    canvas.width  = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    const blob = await new Promise((res)=> canvas.toBlob(res, "image/jpeg", 0.92));
+    if (!blob) throw new Error("PDF render failed");
+    const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
+    return new File([blob], name, { type:"image/jpeg" });
+  }
+
+  // Expose converter for other patches (optional)
+  window.__sspPdfFirstPageToPngFile = window.__sspPdfFirstPageToPngFile || pdfFirstPageToImageFile;
+
+  // ---- dedicated multi pdf input
+  function getInput(){
+    let el = document.getElementById("inPdf__multi_v2");
+    if(!el){
+      el=document.createElement("input");
+      el.type="file";
+      el.accept="application/pdf";
+      el.multiple = true;
+      el.id="inPdf__multi_v2";
+      el.style.display="none";
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  const input = getInput();
+
+  let q = [];
+  let running = false;
+
+  async function processOne(pdfFile, idx, total){
+    toastSafe(`PDF ${idx}/${total}: preparo…`);
+    const imgFile = await pdfFirstPageToImageFile(pdfFile);
+
+    // ✅ make sure save pipeline sees the "photo"
+    window.__sspReceipt = window.__sspReceipt || {};
+    window.__sspReceipt.file = imgFile;
+    window.__sspReceipt.getLastFile = ()=>imgFile;
+    window.__sspPdfLastImageFile = imgFile; // for thumbnail persist patches
+
+    // preview (best effort)
+    try{
+      const url = URL.createObjectURL(imgFile);
+      const im = document.querySelector("#photoPrevImg") || document.querySelector("#receiptPreview");
+      const wrap = document.querySelector("#photoPrev");
+      if(im){
+        im.src = url;
+        if(wrap) wrap.style.display = "block";
+        else im.style.display = "";
+      }
+    }catch(_){}
+
+    // OCR/autosave pipeline
+    if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+      toastSafe(`PDF ${idx}/${total}: OCR…`);
+      await window.__sspReceipt.handle(imgFile, "multi-pdf");
+      toastSafe(`PDF ${idx}/${total}: OK ✅`);
+    }else if(typeof window.handleReceiptOCR === "function"){
+      toastSafe(`PDF ${idx}/${total}: OCR…`);
+      await window.handleReceiptOCR(imgFile);
+      toastSafe(`PDF ${idx}/${total}: OK ✅`);
+    }else{
+      toastSafe(`PDF ${idx}/${total} importato ✅ (salva manualmente)`);
+    }
+  }
+
+  async function runQueue(){
+    if(running) return;
+    running = true;
+    try{
+      const total = q.length;
+      for(let i=0;i<total;i++){
+        const f = q[i];
+        try{
+          await processOne(f, i+1, total);
+        }catch(err){
+          log("process error", err);
+          toastSafe(`Errore su PDF ${i+1}/${total}`);
+        }
+      }
+      toastSafe("Multi-PDF completato ✅");
+    }finally{
+      running = false;
+      q = [];
+    }
+  }
+
+  function enqueue(files){
+    const arr = Array.from(files || []).filter(f=>f && (f.type==="application/pdf" || String(f.name||"").toLowerCase().endsWith(".pdf")));
+    if(!arr.length){
+      toastSafe("Nessun PDF selezionato.");
+      return;
+    }
+    q = arr;
+    runQueue();
+  }
+
+  // ---- hook buttons: multi button if present; fallback to existing pdf button if picker allows multi
+  function isPdfBtn(el){
+    if(!el) return false;
+    return !!(el.closest &&
+      (el.closest("#btnReceiptPdfMulti") ||
+       el.closest("#btnReceiptPdf") ||
+       el.closest("[data-action='receipt-pdf-multi']")));
+  }
+
+  function onClick(e){
+    const t = e.target;
+    if(!isPdfBtn(t)) return;
+
+    // Only open our multi input when clicking the explicit multi button OR when user has multiple intent
+    const isExplicitMulti = !!(t.closest("#btnReceiptPdfMulti") || t.closest("[data-action='receipt-pdf-multi']"));
+    if(!isExplicitMulti){
+      // Don't hijack single import button: leave existing behavior intact.
+      return;
+    }
+
+    try{ e.preventDefault(); }catch(_){}
+    try{ e.stopPropagation(); }catch(_){}
+    try{ e.stopImmediatePropagation(); }catch(_){}
+
+    try{ input.value=""; }catch(_){}
+    try{ input.click(); }catch(err){ log("input.click failed", err); }
+  }
+
+  document.addEventListener("click", onClick, true);
+  document.addEventListener("pointerup", onClick, true);
+
+  input.addEventListener("change", ()=>{
+    try{
+      toastSafe("PDF selezionati ✅");
+      enqueue(input.files);
+    }catch(err){
+      log(err);
+      toastSafe("Errore selezione PDF.");
+    }finally{
+      try{ input.value=""; }catch(_){}
+    }
+  });
+
+  // Inject the explicit multi button safely into Add modal
+  function inject(){
+    try{
+      const modal = document.getElementById("modalAdd");
+      if(!modal) return;
+      if(document.getElementById("btnReceiptPdfMulti")) return;
+
+      // try find a container row near receipt buttons
+      const target = modal.querySelector(".row") || modal;
+      const b = document.createElement("button");
+      b.type="button";
+      b.id="btnReceiptPdfMulti";
+      b.className="btn";
+      b.textContent="📄 Importa PDF (multi)";
+      target.appendChild(b);
+    }catch(_){}
+  }
+  document.addEventListener("DOMContentLoaded", inject);
+  setTimeout(inject, 1200);
+
+  log("Ready ✅");
+})();
