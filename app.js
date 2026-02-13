@@ -3523,3 +3523,120 @@ https://github.com/lucamandis89/spese-scontrini-pro/blob/c7a90222029a291ba093abb
 
   log("Ready ✅");
 })();
+/* ================================
+   FOTO IMPORT ONE-TAP FIX v1 (CHIRURGICO, APPEND-ONLY)
+   Issue: often need to select the photo twice for it to load.
+   Causes (common on Android/PWA):
+   - input.value not reset => selecting same photo doesn't fire change
+   - click hits inner icon/text => handler misses
+   - older handlers interfere => event not reaching the right input
+   Fix:
+   - Dedicated hidden input for gallery selection (multiple OFF to keep behavior)
+   - Reset value BEFORE opening picker + AFTER processing
+   - Capture-phase handler with closest("#btnReceiptGallery") so icon clicks work
+   - Stops old handlers for this button only (stopImmediatePropagation) to prevent double-tap requirement
+   - Feeds existing OCR pipeline: __sspReceipt.handle(file,"photo") or handleReceiptOCR(file)
+   - Sets __sspReceipt.file so save/thumbnail works
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_PHOTO_ONE_TAP_V1) return;
+  window.__SSP_PHOTO_ONE_TAP_V1 = true;
+
+  const log = (...a)=>{ try{ console.log("[PHOTO 1TAP]", ...a); }catch(_){} };
+  const toastSafe = (m)=>{ try{ if(typeof toast==="function") toast(m); }catch(_){ try{ alert(m);}catch(__){} } };
+
+  function getInput(){
+    let el = document.getElementById("inPhoto__oneTap");
+    if(!el){
+      el = document.createElement("input");
+      el.type = "file";
+      el.accept = "image/*";
+      el.id = "inPhoto__oneTap";
+      el.style.display = "none";
+      document.body.appendChild(el);
+    }
+    // keep single selection to match existing flow
+    el.multiple = false;
+    return el;
+  }
+
+  const input = getInput();
+  let busy = false;
+
+  async function handleFile(file){
+    if(!file || busy) return;
+    busy = true;
+    try{
+      // Make file available for save pipeline (thumbnail/photo)
+      window.__sspReceipt = window.__sspReceipt || {};
+      window.__sspReceipt.file = file;
+      window.__sspReceipt.getLastFile = ()=>file;
+
+      // Preview best-effort
+      try{
+        const url = URL.createObjectURL(file);
+        const im = document.querySelector("#photoPrevImg") || document.querySelector("#receiptPreview");
+        const wrap = document.querySelector("#photoPrev");
+        if(im){
+          im.src = url;
+          if(wrap) wrap.style.display = "block";
+          else im.style.display = "";
+        }
+      }catch(_){}
+
+      // Feed existing OCR pipeline
+      try{
+        if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+          await window.__sspReceipt.handle(file, "photo");
+          return;
+        }
+      }catch(e){ log("pipeline handle error", e); }
+
+      try{
+        if(typeof window.handleReceiptOCR === "function"){
+          await window.handleReceiptOCR(file);
+          return;
+        }
+      }catch(e){ log("handleReceiptOCR error", e); }
+
+      toastSafe("Foto caricata ✅");
+    } finally {
+      busy = false;
+    }
+  }
+
+  input.addEventListener("change", async ()=>{
+    const f = input.files && input.files[0];
+    await handleFile(f);
+    // critical: reset after
+    try{ input.value = ""; }catch(_){}
+  });
+
+  function onGalleryClick(e){
+    const btn = e.target && e.target.closest ? e.target.closest("#btnReceiptGallery") : null;
+    if(!btn) return;
+
+    // Prevent old handlers from causing double-step
+    try{ e.preventDefault(); }catch(_){}
+    try{ e.stopPropagation(); }catch(_){}
+    try{ e.stopImmediatePropagation(); }catch(_){}
+
+    // Critical: reset before opening picker so same file triggers change
+    try{ input.value = ""; }catch(_){}
+
+    // Use direct click in same gesture; fallback to 0ms timeout
+    try{
+      input.click();
+    }catch(err){
+      log("input.click failed", err);
+      try{ setTimeout(()=>{ try{ input.click(); }catch(_){} }, 0); }catch(_){}
+    }
+  }
+
+  // Capture phase + pointerup for Android reliability
+  document.addEventListener("click", onGalleryClick, true);
+  document.addEventListener("pointerup", onGalleryClick, true);
+
+  log("Ready ✅");
+})();
