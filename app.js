@@ -2951,3 +2951,176 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
   log("PDF import robust v2 ready ✅");
 })();
+/* ================================
+   PDF IMPORT ROBUST FIX v3 (CHIRURGICO)
+   - Works even if click target is inner icon/text (uses closest)
+   - Blocks previous buggy handlers (stopImmediatePropagation)
+   - Dedicated hidden input in <body>, reset before/after, plus safety timer
+   - Keeps ALL existing features intact (append-only)
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_PDF_IMPORT_ROBUST_V3) return;
+  window.__SSP_PDF_IMPORT_ROBUST_V3 = true;
+
+  const log = (...a)=>{ try{ console.log("[PDF ROBUST v3]", ...a); }catch(_){} };
+  const toastSafe = (m)=>{ try{ if(typeof toast==="function") toast(m); else alert(m); }catch(_){} };
+
+  // ---- load script once
+  function loadScriptOnce(src){
+    window.__sspScripts = window.__sspScripts || {};
+    if (window.__sspScripts[src]) return window.__sspScripts[src];
+    window.__sspScripts[src] = new Promise((res, rej)=>{
+      const s=document.createElement("script");
+      s.src=src; s.async=true;
+      s.onload=()=>res(true);
+      s.onerror=()=>rej(new Error("Load failed: "+src));
+      document.head.appendChild(s);
+    });
+    return window.__sspScripts[src];
+  }
+
+  // ---- ensure pdf.js always available
+  async function ensurePdfJsReady(){
+    if (window.pdfjsLib && window.__sspPdfReady) return true;
+    if (!window.pdfjsLib){
+      await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+    }
+    if (!window.pdfjsLib) throw new Error("PDF.js missing");
+    try{
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    }catch(_){}
+    window.__sspPdfReady = true;
+    return true;
+  }
+
+  async function pdfFirstPageToImageFile(pdfFile){
+    await ensurePdfJsReady();
+    const buf = await pdfFile.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+
+    const viewport = page.getViewport({ scale: 2.6 }); // qualità OCR + robustezza
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+    canvas.width  = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    const blob = await new Promise((res)=> canvas.toBlob(res, "image/jpeg", 0.92));
+    if (!blob) throw new Error("Render PDF fallito");
+    const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
+    return new File([blob], name, { type:"image/jpeg" });
+  }
+
+  // ---- create dedicated input (never destroyed)
+  function getRobustInput(){
+    let el = document.querySelector("#inPdf__robust_v3");
+    if (!el){
+      el = document.createElement("input");
+      el.type = "file";
+      el.accept = "application/pdf";
+      el.id = "inPdf__robust_v3";
+      el.style.display = "none";
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+
+  let busy = false;
+  let busyTimer = null;
+
+  function clearBusyTimer(){
+    try{ if(busyTimer) clearTimeout(busyTimer); }catch(_){}
+    busyTimer = null;
+  }
+
+  async function handlePdf(file){
+    if (!file) return;
+    if (busy) return;
+    busy = true;
+
+    // Safety: if something hangs, unlock after 12s
+    clearBusyTimer();
+    busyTimer = setTimeout(()=>{ busy=false; log("busy unlock by timer"); }, 12000);
+
+    try{
+      toastSafe("Importo PDF…");
+      const imgFile = await pdfFirstPageToImageFile(file);
+
+      // Preview if possible (re-use existing pipeline)
+      try{
+        if (typeof fileToImage === "function" &&
+            typeof imageToDataUrl === "function" &&
+            typeof setPhotoPreview === "function"){
+          const img = await fileToImage(imgFile);
+          const dataUrl = await imageToDataUrl(img, 0, null, 1.0, 0);
+          try{ window.previewPhoto = dataUrl; }catch(_){}
+          try{ window.scanImg = img; }catch(_){}
+          setPhotoPreview(dataUrl);
+        }else{
+          // minimal fallback preview
+          const prev = document.querySelector("#receiptPreview");
+          if(prev){
+            prev.src = URL.createObjectURL(imgFile);
+            prev.style.display = "";
+          }
+        }
+      }catch(e){ log("preview fail", e); }
+
+      // Start OCR if pipeline exists
+      try{
+        if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+          await window.__sspReceipt.handle(imgFile, "pdf");
+          toastSafe("PDF importato ✅");
+          return;
+        }
+      }catch(e){ log("OCR pipeline fail", e); }
+
+      toastSafe("PDF importato ✅ (pagina 1)");
+    }catch(err){
+      log(err);
+      toastSafe("PDF non supportato / protetto / errore import.");
+    }finally{
+      busy = false;
+      clearBusyTimer();
+    }
+  }
+
+  const input = getRobustInput();
+
+  // IMPORTANT: make sure previous handlers can't hijack the click.
+  // Use CAPTURE + closest() so it works even if you click an inner icon/span.
+  function onUserGesture(e){
+    const btn = e.target && e.target.closest ? e.target.closest("#btnReceiptPdf") : null;
+    if(!btn) return;
+
+    // Stop any old/broken listeners
+    try{ e.preventDefault(); }catch(_){}
+    try{ e.stopPropagation(); }catch(_){}
+    try{ e.stopImmediatePropagation(); }catch(_){}
+
+    // Reset value BEFORE opening picker so choosing same file fires change
+    try{ input.value = ""; }catch(_){}
+    // Some Android WebViews are picky: wrap in setTimeout 0 while still in gesture.
+    try{
+      setTimeout(()=>{ try{ input.click(); }catch(err){ log("input.click failed", err); } }, 0);
+    }catch(_){
+      try{ input.click(); }catch(err){ log("input.click failed", err); }
+    }
+  }
+
+  document.addEventListener("click", onUserGesture, true);
+  // Extra: some browsers trigger better on pointerup
+  document.addEventListener("pointerup", onUserGesture, true);
+
+  input.addEventListener("change", async ()=>{
+    const file = input.files && input.files[0];
+    await handlePdf(file);
+    // reset AFTER too
+    try{ input.value = ""; }catch(_){}
+  });
+
+  log("PDF import robust v3 ready ✅");
+})();
