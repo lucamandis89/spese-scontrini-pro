@@ -4473,3 +4473,128 @@ https://github.com/lucamandis89/spese-scontrini-pro/blob/c7a90222029a291ba093abb
   setTimeout(apply, 800);
   setTimeout(apply, 2000);
 })();
+/* ================================
+   CHROME PICKER DEFINITIVE FIX v7 (CHIRURGICO, APPEND-ONLY)
+   Symptom: In Chrome, after selecting a photo/PDF and pressing OK, the picker re-opens and asks to reselect.
+   Root cause: some stacked handler calls input.click() again right after returning (focus/visibility),
+               and multiple patches amplify it.
+   Definitive fix:
+   - Introduce "allowlist" for file-input openings:
+       * Only allow input.click() if a real user gesture just happened (pointerdown) on one of our known buttons,
+         OR the click comes from the file input itself (native picker).
+       * After a selection (change), block ALL file-input clicks for 4s (prevents the unwanted reopen loop).
+   - Does NOT remove other features; it only blocks unwanted programmatic picker opens.
+   - Works even if buttons are re-rendered, because it keys off user gesture + accept/type.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_CHROME_PICKER_V7) return;
+  window.__SSP_CHROME_PICKER_V7 = true;
+
+  const log = (...a)=>{ try{ console.log("[PICKER v7]", ...a); }catch(_){} };
+
+  // ---- state
+  let userGestureUntil = 0;
+  let expectedKind = null; // "photo" | "pdf" | null
+  let blockAllFileClicksUntil = 0;
+
+  function now(){ return Date.now(); }
+  function isBlocked(){ return now() < blockAllFileClicksUntil; }
+
+  function markUserGesture(kind){
+    expectedKind = kind;
+    userGestureUntil = now() + 900; // allow for same tick + minor delays
+  }
+
+  function matchesKind(input, kind){
+    try{
+      const acc = String(input.accept||"").toLowerCase();
+      if(kind === "photo") return acc.includes("image") || input.accept === "" || acc.includes("camera");
+      if(kind === "pdf") return acc.includes("pdf") || acc.includes("application/pdf");
+      return true;
+    }catch(_){ return true; }
+  }
+
+  // Capture user gestures on the relevant buttons (even if re-rendered)
+  document.addEventListener("pointerdown", (e)=>{
+    const t = e.target;
+    if(!t || !t.closest) return;
+
+    // these ids were used in builds; we also accept common text buttons via data-action if present
+    if(t.closest("#btnReceiptGallery") || t.closest("[data-action='receipt-gallery']")){
+      markUserGesture("photo");
+    }else if(t.closest("#btnReceiptPdf") || t.closest("[data-action='receipt-pdf']")){
+      markUserGesture("pdf");
+    }
+  }, true);
+
+  // Also allow gesture from any element that opens a file picker by role/name (fallback):
+  document.addEventListener("pointerdown", (e)=>{
+    const el = e.target;
+    if(!el) return;
+    const txt = (el.innerText||"").toLowerCase();
+    if(txt.includes("allega") && txt.includes("scontrin")) markUserGesture("photo");
+    if(txt.includes("importa") && txt.includes("pdf")) markUserGesture("pdf");
+  }, true);
+
+  // Wrap input.click to stop unwanted reopens
+  try{
+    const proto = HTMLInputElement && HTMLInputElement.prototype;
+    if(proto && !proto.__sspV7Wrapped){
+      const orig = proto.click;
+      proto.click = function(){
+        try{
+          if(this && this.type === "file"){
+            // hard block window after a selection to prevent reopen loop
+            if(isBlocked()){
+              log("blocked file picker reopen (cooldown)");
+              return;
+            }
+
+            // If not in a user gesture window, block programmatic opens.
+            if(now() > userGestureUntil){
+              log("blocked programmatic file picker open (no gesture)");
+              return;
+            }
+
+            // If we know the intended kind, ensure input matches; otherwise block
+            if(expectedKind && !matchesKind(this, expectedKind)){
+              log("blocked mismatched input kind", expectedKind, this.accept);
+              return;
+            }
+
+            // reset before open so selecting same file triggers change
+            try{ this.value = ""; }catch(_){}
+          }
+        }catch(_){}
+
+        return orig.apply(this, arguments);
+      };
+      proto.__sspV7Wrapped = true;
+      log("wrapped HTMLInputElement.click ✅");
+    }
+  }catch(err){
+    log("wrap failed", err);
+  }
+
+  // When a file is selected, block further opens briefly (prevents Chrome re-open loop)
+  document.addEventListener("change", (e)=>{
+    const t = e.target;
+    if(!t || t.tagName !== "INPUT" || t.type !== "file") return;
+    const files = t.files;
+    if(files && files.length){
+      blockAllFileClicksUntil = now() + 4000;
+      // clear gesture so no further opens happen automatically
+      userGestureUntil = 0;
+      expectedKind = null;
+      // Do NOT stop propagation: let your existing OCR/autosave logic run.
+      log("file selected -> cooldown ON");
+    }
+  }, true);
+
+  // If browser fires focus/visibility events that trigger code paths, keep cooldown (no-op)
+  window.addEventListener("focus", ()=>{ /* keep cooldown */ }, true);
+  document.addEventListener("visibilitychange", ()=>{ /* keep cooldown */ }, true);
+
+  log("Ready ✅");
+})();
