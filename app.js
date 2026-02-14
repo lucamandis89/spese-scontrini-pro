@@ -3987,3 +3987,180 @@ https://github.com/lucamandis89/spese-scontrini-pro/blob/c7a90222029a291ba093abb
 
   log("Ready ✅");
 })();
+/* ================================
+   PICKER FALLBACK FIX v4 (CHIRURGICO, APPEND-ONLY)
+   Problem: on some Android/PWA setups, the file input 'change' event is missed
+   the first time after returning from picker (focus/visibility race). User then
+   repeats selection and it works.
+   Fix:
+   - Track the last file input the user interacted with (photo/pdf buttons).
+   - If 'change' fires -> normal flow.
+   - If 'change' does NOT fire, on window 'focus' or 'visibilitychange' we check
+     input.files and process it once.
+   - Works alongside existing code; does NOT remove anything.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_PICKER_FALLBACK_V4) return;
+  window.__SSP_PICKER_FALLBACK_V4 = true;
+
+  const log = (...a)=>{ try{ console.log("[PICKER v4]", ...a); }catch(_){} };
+  const toastSafe = (m)=>{ try{ if(typeof toast==="function") toast(m); }catch(_){ } };
+
+  let pending = null; // {kind, inputEl, ts, handled}
+  const PENDING_TTL_MS = 7000;
+
+  function markPending(kind, inputEl){
+    pending = { kind, inputEl, ts: Date.now(), handled: false };
+  }
+
+  function isExpired(p){
+    return !p || (Date.now() - p.ts) > PENDING_TTL_MS;
+  }
+
+  function loadScriptOnce(src){
+    window.__sspScripts = window.__sspScripts || {};
+    if(window.__sspScripts[src]) return window.__sspScripts[src];
+    window.__sspScripts[src] = new Promise((res, rej)=>{
+      const s=document.createElement("script");
+      s.src=src; s.async=true;
+      s.onload=()=>res(true);
+      s.onerror=()=>rej(new Error("Load failed: "+src));
+      document.head.appendChild(s);
+    });
+    return window.__sspScripts[src];
+  }
+
+  async function ensurePdfJsReady(){
+    if(window.pdfjsLib && window.__sspPdfReady) return true;
+    if(!window.pdfjsLib){
+      await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+    }
+    if(!window.pdfjsLib) throw new Error("PDF.js missing");
+    try{
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    }catch(_){}
+    window.__sspPdfReady = true;
+    return true;
+  }
+
+  async function pdfFirstPageToImage(pdfFile){
+    if(typeof window.__sspPdfFirstPageToPngFile === "function"){
+      return await window.__sspPdfFirstPageToPngFile(pdfFile);
+    }
+    if(typeof window.__sspPdfFirstPageToImageFile === "function"){
+      return await window.__sspPdfFirstPageToImageFile(pdfFile);
+    }
+    await ensurePdfJsReady();
+    const buf = await pdfFile.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.6 });
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+    canvas.width  = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const blob = await new Promise((res)=>canvas.toBlob(res, "image/jpeg", 0.92));
+    if(!blob) throw new Error("PDF render failed");
+    const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
+    return new File([blob], name, { type:"image/jpeg" });
+  }
+
+  async function showPreview(file){
+    try{
+      const url = URL.createObjectURL(file);
+      const im = document.querySelector("#photoPrevImg") || document.querySelector("#receiptPreview");
+      const wrap = document.querySelector("#photoPrev");
+      if(im){
+        im.src = url;
+        if(wrap) wrap.style.display="block";
+        else im.style.display="";
+      }
+    }catch(_){}
+  }
+
+  async function runPipeline(file, kind){
+    window.__sspReceipt = window.__sspReceipt || {};
+    window.__sspReceipt.file = file;
+    window.__sspReceipt.getLastFile = ()=>file;
+    if(kind === "pdf") window.__sspPdfLastImageFile = file;
+
+    await showPreview(file);
+
+    if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+      await window.__sspReceipt.handle(file, kind);
+      return true;
+    }
+    if(typeof window.handleReceiptOCR === "function"){
+      await window.handleReceiptOCR(file);
+      return true;
+    }
+    return false;
+  }
+
+  async function processInputOnce(p){
+    if(!p || p.handled) return;
+    if(isExpired(p)) { pending=null; return; }
+    const el = p.inputEl;
+    if(!el || el.type !== "file") return;
+    const files = el.files;
+    if(!files || files.length !== 1) return;
+
+    p.handled = true;
+    try{
+      if(p.kind === "photo"){
+        toastSafe("Carico foto…");
+        await runPipeline(files[0], "photo");
+      }else if(p.kind === "pdf"){
+        toastSafe("Importo PDF…");
+        const img = await pdfFirstPageToImage(files[0]);
+        await runPipeline(img, "pdf");
+      }
+    }catch(err){
+      log("fallback process error", err);
+    }finally{
+      // reset so same file can be chosen again
+      try{ el.value = ""; }catch(_){}
+      pending = null;
+    }
+  }
+
+  // Track intent and which input will likely receive the file.
+  function findLikelyPhotoInput(){
+    return document.querySelector("#inPhoto, #inPhotoCam, input[type=file][accept*='image']");
+  }
+  function findLikelyPdfInput(){
+    return document.querySelector("#inPdf, input[type=file][accept*='pdf']");
+  }
+
+  document.addEventListener("click", (e)=>{
+    const g = e.target?.closest && e.target.closest("#btnReceiptGallery");
+    if(g){
+      const inp = findLikelyPhotoInput();
+      if(inp) markPending("photo", inp);
+      return;
+    }
+    const p = e.target?.closest && e.target.closest("#btnReceiptPdf");
+    if(p){
+      const inp = findLikelyPdfInput();
+      if(inp) markPending("pdf", inp);
+      return;
+    }
+  }, true);
+
+  // If change fires, process immediately and clear pending
+  document.addEventListener("change", async (e)=>{
+    if(!pending || pending.handled) return;
+    if(isExpired(pending)) { pending=null; return; }
+    if(e.target !== pending.inputEl) return;
+    await processInputOnce(pending);
+  }, true);
+
+  // Fallback: when returning from picker, focus/visibility events fire
+  window.addEventListener("focus", ()=>{ if(pending) processInputOnce(pending); }, true);
+  document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && pending) processInputOnce(pending); }, true);
+
+  log("Ready ✅");
+})();
