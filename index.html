@@ -8,14 +8,19 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>Scontrini Facili Pro</title>
-  <link href="./manifest.webmanifest?v=37.3" rel="manifest">
+  <link href="./manifest.webmanifest?v=38.0" rel="manifest">
   <link href="./assets/logo.svg" rel="icon" type="image/svg+xml">
-  <link href="./style.css?v=37.3" rel="stylesheet">
+  <link href="./style.css?v=38.0" rel="stylesheet">
+  <!-- Librerie aggiuntive -->
+  <script defer src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
+  <!-- Librerie esistenti -->
   <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script defer src="./app.js?v=37.3"></script>
+  <script defer src="./app.js?v=38.0"></script>
  </head>
  <body>
   <header class="appHeader">
@@ -112,7 +117,7 @@
        </div>
       </div>
       <div class="bd">
-       <div class="notice">Badge “Detraibile (730)” appare sulle categorie CAF/ISEE.</div>
+       <div class="notice">Badge “Detraibile (730)” appare sulle categorie CAF/ISEE o se forzato manualmente.</div>
        <div class="listHeader">
         <div class="muted" id="countLabel">0 spese</div>
         <div class="muted" id="sumLabel">Totale filtro: € 0,00</div>
@@ -142,46 +147,36 @@
          <label>Tipo report</label> <select id="rMode"> <option value="month">Report Mensile</option> <option value="caf">Report CAF/ISEE</option> </select>
         </div>
        </div>
-       <div id="ocrPanelReport" class="card" style="display:none; margin-top:12px">
-        <div class="row" style="align-items:center; justify-content:space-between">
-         <div>
-          <b>Risultato OCR</b> <span class="muted" id="ocrStatusReport" style="font-size:12px; margin-left:6px"></span>
-         </div>
-         <div class="row" style="gap:8px">
-          <button class="btn small" id="btnOcrCopyReport" type="button">Copia</button>
-          <button class="btn small" id="btnOcrDownloadReport" type="button">Scarica testo</button>
-         </div>
-        </div>
-        <textarea id="ocrTextReport" style="width:100%; min-height:120px; margin-top:10px" placeholder="Qui comparirà il testo OCR..."></textarea>
-       </div>
-       <div class="row" style="margin-top:12px">
+       <div class="row" style="margin-top:12px; flex-wrap:wrap;">
         <button class="btn primary" id="btnMakePdf" type="button">📄 Genera PDF</button>
+        <button class="btn" id="btnExportExcel" type="button">📊 Esporta Excel</button>
         <button class="btn" id="btnSendAccountant" type="button">📤 Invia 730 (commercialista)</button>
         <button class="btn" id="btnBackup" type="button">⬇️ Esporta backup</button>
         <label class="btn" style="cursor:pointer"> ⬆️ Importa backup <input accept="application/json" id="inRestore" style="display:none" type="file"> </label>
        </div>
        <div class="divider"></div>
-       <!-- ANALISI / GRAFICO -->
+       <!-- GRAFICO INTERATTIVO -->
        <div class="anaCard">
         <div class="anaTop">
          <div>
           <div class="miniTitle" style="margin:0">Analisi categorie</div>
-          <div class="muted" style="font-size:12px">Bar chart + Top categorie</div>
+          <div class="muted" style="font-size:12px">Grafico interattivo + dettaglio</div>
          </div>
          <label class="chip"> <input id="anaOnlyCaf" type="checkbox"> <span>Solo detraibili</span> </label>
         </div>
-        <div class="anaBars" id="anaBars"></div>
+        <canvas id="catChart" style="max-height:300px; margin-top:10px; width:100%;"></canvas>
         <div class="anaList" id="anaList"></div>
        </div>
        <div class="divider"></div>
        <div class="row">
         <button class="btn bad" id="btnWipeAll" type="button">🗑️ Reset totale</button>
        </div>
-       <div class="hint" style="margin-top:12px">CAF/ISEE include solo: Farmacia/Mediche, Scuola, Bambini, Assicurazioni, Casa, Bollette.</div>
+       <div class="hint" style="margin-top:12px">CAF/ISEE include solo: Farmacia/Mediche, Scuola, Bambini, Assicurazioni, Casa, Bollette + detraibile forzato manuale.</div>
       </div>
      </div>
     </div>
    </section>
+   <!-- IMPOSTAZIONI -->
    <section class="page" data-page="settings">
     <div class="wrap">
      <div class="card">
@@ -213,10 +208,26 @@
         </div>
        </div>
        <div class="panel">
-        <div class="ptitle">Lingua</div>
+        <div class="ptitle">Lingua e tema</div>
         <div class="formRow">
          <label>Seleziona lingua</label><select id="langSelect"><option value="it">Italiano</option><option value="en">English</option></select>
         </div>
+        <div class="formRow">
+         <label class="checkbox">
+          <input type="checkbox" id="themeToggle"> Tema chiaro
+         </label>
+        </div>
+       </div>
+       <!-- PROMEMORIA SCADENZE -->
+       <div class="panel">
+        <div class="ptitle">⏰ Promemoria scadenze</div>
+        <div class="formRow">
+         <label>Nuovo promemoria</label>
+         <input type="date" id="reminderDate">
+         <input type="text" id="reminderText" placeholder="es. Bolletta luce">
+         <button class="btn small" id="addReminder">Aggiungi</button>
+        </div>
+        <ul id="reminderList" style="list-style:none; padding:0;"></ul>
        </div>
        <div class="rowActions">
         <button class="btn" id="btnSaveSettings" type="button">Salva impostazioni</button>
@@ -261,11 +272,17 @@
        <label>Data</label> <input id="inDate" type="date">
       </div>
      </div>
-     <label>Categoria</label> <select id="inCategory"></select> <label>Descrizione</label> <input id="inNote" placeholder="es: spesa supermercato / farmacia / benzina..."> <label>Foto scontrino (opzionale)</label>
+     <label>Categoria</label> <select id="inCategory"></select>
+     <label class="checkbox" style="margin-top:6px;">
+      <input type="checkbox" id="inDetraibile"> ⭐ Detraibile (forzato)
+     </label>
+     <label>Descrizione</label> <input id="inNote" placeholder="es: spesa supermercato / farmacia / benzina...">
+     <label>Foto scontrino (opzionale)</label>
      <div class="receiptActions">
       <button class="btn" id="btnReceiptCamera" type="button">📷 Fai foto scontrino</button>
       <button class="btn" id="btnReceiptGallery" type="button">🖼️ Allega scontrino</button>
       <button class="btn" id="btnReceiptPdf" type="button">📄 Importa PDF</button>
+      <button class="btn" id="scanBarcode" type="button">📷 Scansiona codice a barre</button>
      </div>
      <input accept="image/*" capture="environment" hidden id="inPhotoCam" type="file" multiple> 
      <input accept="image/*" hidden id="inPhoto" type="file" multiple> 
@@ -377,22 +394,23 @@
        </div>
       </div>
      </div>
-     <div id="ocrPanelScan" class="card" style="display:none; margin-top:12px">
-      <div class="row" style="align-items:center; justify-content:space-between">
-       <div>
-        <b>Risultato OCR</b> <span class="muted" id="ocrStatusScan" style="font-size:12px; margin-left:6px"></span>
-       </div>
-       <div class="row" style="gap:8px">
-        <button class="btn small" id="btnOcrCopyScan" type="button">Copia</button>
-        <button class="btn small" id="btnOcrDownloadScan" type="button">Scarica testo</button>
-       </div>
-      </div>
-      <textarea id="ocrTextScan" style="width:100%; min-height:120px; margin-top:10px" placeholder="Qui comparirà il testo OCR..."></textarea>
-     </div>
      <div class="row" style="margin-top:12px">
       <button class="btn ok" id="applyScan" type="button">✅ Applica alla foto</button>
       <button class="btn" id="resetScan" type="button">🔄 Reset</button>
      </div>
+    </div>
+   </div>
+  </div>
+  <!-- MODAL BARCODE SCANNER -->
+  <div aria-hidden="true" class="modal" id="modalBarcode">
+   <div class="box" style="max-width:600px;">
+    <div class="mh">
+     <h3>📷 Inquadra il codice a barre</h3>
+     <button class="btn small" id="barcodeClose" type="button">✖</button>
+    </div>
+    <div class="mb">
+     <div id="barcodeCanvas" style="width:100%; min-height:300px; background:#000; border-radius:12px;"></div>
+     <p class="muted" style="margin-top:10px;">Il codice letto verrà inserito automaticamente nella descrizione.</p>
     </div>
    </div>
   </div>
