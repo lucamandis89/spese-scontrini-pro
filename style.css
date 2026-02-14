@@ -2418,3 +2418,16 @@ body.light-theme .btn.primary {
   background: #2563eb;
   color: #fff;
 }
+/* =========================
+   v38.1 - NUOVO FAB MODALITÀ
+   ========================= */
+#fabSimpleToggle {
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  bottom: calc(96px + env(safe-area-inset-bottom)) !important;
+  background: linear-gradient(135deg, rgba(255,159,28,.95), rgba(255,99,71,.85)) !important;
+  border-color: rgba(255,140,0,.35) !important;
+}
+#fabSimpleToggle span {
+  font-size: 22px !important;
+}
