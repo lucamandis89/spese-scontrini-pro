@@ -736,7 +736,7 @@ h2, .subtitle, header h2{
   line-height: 1.2;
 }
 
-.card, .panel, .box, .section{
+.card, .panel, .box, .section, .sheet{
   border-radius: var(--r-2);
   box-shadow: var(--shadow-1);
   padding: var(--pad-2);
