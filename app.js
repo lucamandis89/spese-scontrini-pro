@@ -3631,3 +3631,153 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   document.addEventListener("DOMContentLoaded", inject);
   setTimeout(inject, 600);
 })();
+/* ================================
+   MODALITÀ SEMPLICE v2 (CHIRURGICO, VISIBILE, AUTO-MARK)
+   Fix: toggle non evidente / elementi non marcati.
+   - Toggle card in Impostazioni (sempre visibile)
+   - Mini toggle flottante (sopra la barra in basso)
+   - Auto-nasconde voci barra: Archivio + Report + Impostazioni
+   - Nasconde blocchi avanzati nelle impostazioni (OCR/endpoint/backup ecc.) in best-effort
+   - NON cambia logica: solo UI hide/show
+   Persist: localStorage __sspSimpleMode = "1"/"0"
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_SIMPLE_MODE_V2) return;
+  window.__SSP_SIMPLE_MODE_V2 = true;
+
+  const LS_KEY="__sspSimpleMode";
+  const getOn=()=>{ try{return localStorage.getItem(LS_KEY)==="1";}catch(_){return false;} };
+  const setOn=(v)=>{
+    try{ localStorage.setItem(LS_KEY, v?"1":"0"); }catch(_){}
+    apply();
+    try{ if(typeof toast==="function") toast(v?"Modalità semplice: ON":"Modalità semplice: OFF"); }catch(_){}
+  };
+
+  function apply(){
+    try{
+      document.body.classList.toggle("ssp-simple", getOn());
+      const chk=document.getElementById("sspSimpleChkV2");
+      if(chk) chk.checked=getOn();
+      const fab=document.getElementById("sspSimpleFabV2");
+      if(fab) fab.textContent=getOn()?"Semplice ON":"Semplice OFF";
+    }catch(_){}
+  }
+
+  function injectCss(){
+    if(document.getElementById("sspSimpleCssV2")) return;
+    const s=document.createElement("style");
+    s.id="sspSimpleCssV2";
+    s.textContent=`
+      body.ssp-simple [data-adv="1"]{ display:none !important; }
+      body.ssp-simple .ssp-adv-block{ display:none !important; }
+
+      #sspSimpleFabV2{
+        position:fixed; right:12px; bottom:86px; z-index:99999;
+        padding:10px 12px; border-radius:14px;
+        border:1px solid rgba(255,255,255,.18);
+        background:rgba(30,30,34,.92);
+        color:#fff; font-weight:900;
+      }
+    `;
+    document.head.appendChild(s);
+  }
+
+  function markBottomNav(){
+    try{
+      const nav = document.querySelector("nav") || document.querySelector(".bottom-nav") || document.querySelector(".tabbar") || document.body;
+      const candidates = nav.querySelectorAll("a,button,div");
+      candidates.forEach(el=>{
+        const t=(el.textContent||"").trim().toLowerCase();
+        if(!t) return;
+        if(t==="archivio" || t==="report" || t==="impostazioni"){
+          el.dataset.adv="1";
+        }
+      });
+    }catch(_){}
+  }
+
+  function markAdvancedSettings(){
+    try{
+      const settingsPage =
+        document.querySelector("#pageSettings") ||
+        document.querySelector("#tabSettings") ||
+        document.querySelector("#settings") ||
+        document.querySelector("[data-page='settings']") ||
+        document.querySelector("main") ||
+        document.body;
+
+      const keywords = ["api key","endpoint","ocr","test chiave","modalità ocr","backup","reset dati app","esporta","importa"];
+      settingsPage.querySelectorAll("section,div,article").forEach(block=>{
+        const txt=(block.textContent||"").toLowerCase();
+        if(!txt || txt.length<10) return;
+        if(keywords.some(k=>txt.includes(k))){
+          if(txt.includes("lingua") || txt.includes("salva impostazioni")) return;
+          block.classList.add("ssp-adv-block");
+        }
+      });
+    }catch(_){}
+  }
+
+  function ensureToggleCard(){
+    try{
+      if(document.getElementById("sspSimpleCardV2")) return;
+
+      const settings =
+        document.querySelector("#pageSettings") ||
+        document.querySelector("#tabSettings") ||
+        document.querySelector("#settings") ||
+        document.querySelector("[data-page='settings']");
+
+      if(!settings) return;
+
+      const card=document.createElement("div");
+      card.id="sspSimpleCardV2";
+      card.style.cssText="margin:12px 0;padding:12px;border:1px solid rgba(255,255,255,.10);border-radius:16px;background:rgba(255,255,255,.04);";
+      card.innerHTML=`
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <div>
+            <div style="font-weight:900">Modalità semplice</div>
+            <div style="opacity:.8;font-size:12px;margin-top:4px">Mostra solo funzioni essenziali. Nasconde funzioni avanzate.</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:10px;font-weight:900">
+            <input id="sspSimpleChkV2" type="checkbox" style="transform:scale(1.2)">
+            <span>ON</span>
+          </label>
+        </div>
+      `;
+      settings.prepend(card);
+
+      const chk=card.querySelector("#sspSimpleChkV2");
+      chk.checked=getOn();
+      chk.addEventListener("change", ()=>setOn(chk.checked));
+    }catch(_){}
+  }
+
+  function ensureFab(){
+    try{
+      if(document.getElementById("sspSimpleFabV2")) return;
+      const b=document.createElement("button");
+      b.id="sspSimpleFabV2";
+      b.type="button";
+      b.textContent=getOn()?"Semplice ON":"Semplice OFF";
+      b.addEventListener("click", ()=>setOn(!getOn()));
+      document.body.appendChild(b);
+    }catch(_){}
+  }
+
+  function boot(){
+    injectCss();
+    ensureFab();
+    ensureToggleCard();
+    markBottomNav();
+    markAdvancedSettings();
+    apply();
+  }
+
+  document.addEventListener("DOMContentLoaded", boot);
+  setTimeout(boot, 700);
+  setTimeout(boot, 2000);
+
+  window.__sspSetSimpleMode=setOn;
+})();
