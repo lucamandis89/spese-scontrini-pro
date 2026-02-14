@@ -4598,3 +4598,67 @@ https://github.com/lucamandis89/spese-scontrini-pro/blob/c7a90222029a291ba093abb
 
   log("Ready ✅");
 })();
+/* ================================
+   ENABLE MULTI PHOTO/PDF v1 (CHIRURGICO, APPEND-ONLY)
+   Issue: after Chrome picker fix, gallery allows selecting only 1 file.
+   Cause: the active <input type="file"> used by buttons has multiple=false.
+   Fix:
+   - Force multiple=true on known photo/pdf inputs (including our stable ones),
+     and on any file input whose accept includes image/* or pdf when it's used for imports.
+   - Does NOT change your multi-processing logic; it only enables selecting multiple files.
+   - Safe: only touches inputs (attributes), never other features.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_ENABLE_MULTI_V1) return;
+  window.__SSP_ENABLE_MULTI_V1 = true;
+
+  const log = (...a)=>{ try{ console.log("[MULTI v1]", ...a); }catch(_){} };
+
+  function forceMulti(){
+    try{
+      // Photo inputs
+      const photoIds = ["inPhoto__stable_v1","inPhoto__oneTap_v2","inPhoto","inPhotoCam","inReceiptPhoto"];
+      photoIds.forEach(id=>{
+        const el = document.getElementById(id);
+        if(el && el.type==="file"){
+          el.multiple = true;
+          if(!el.accept || !String(el.accept).toLowerCase().includes("image")) el.accept = "image/*";
+        }
+      });
+
+      // PDF inputs
+      const pdfIds = ["inPdf__stable_v1","inPdf__multi_v2","inPdf","inReceiptPdf"];
+      pdfIds.forEach(id=>{
+        const el = document.getElementById(id);
+        if(el && el.type==="file"){
+          el.multiple = true;
+          const acc = String(el.accept||"").toLowerCase();
+          if(!acc.includes("pdf")) el.accept = "application/pdf";
+        }
+      });
+
+      // Generic: any import-oriented file input
+      document.querySelectorAll("input[type='file']").forEach(el=>{
+        const acc = String(el.accept||"").toLowerCase();
+        if(acc.includes("image")){
+          el.multiple = true;
+        }
+        if(acc.includes("pdf")){
+          el.multiple = true;
+        }
+      });
+
+      log("multi enabled on inputs ✅");
+    }catch(err){
+      log("forceMulti error", err);
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", forceMulti);
+  // modals can create inputs later
+  setTimeout(forceMulti, 800);
+  setTimeout(forceMulti, 2000);
+  // if app re-renders, allow manual call
+  window.__sspForceMultiInputs = forceMulti;
+})();
