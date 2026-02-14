@@ -8,14 +8,14 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>Scontrini Facili Pro</title>
-  <link href="./manifest.webmanifest?v=37.2" rel="manifest">
+  <link href="./manifest.webmanifest?v=37.3" rel="manifest">
   <link href="./assets/logo.svg" rel="icon" type="image/svg+xml">
-  <link href="./style.css?v=37.2" rel="stylesheet">
+  <link href="./style.css?v=37.3" rel="stylesheet">
   <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script defer src="./app.js?v=37.2"></script>
+  <script defer src="./app.js?v=37.3"></script>
  </head>
  <body>
   <header class="appHeader">
@@ -112,7 +112,7 @@
        </div>
       </div>
       <div class="bd">
-       <div class="notice">Badge “Detraibile” appare sulle categorie CAF/ISEE.</div>
+       <div class="notice">Badge “Detraibile (730)” appare sulle categorie CAF/ISEE.</div>
        <div class="listHeader">
         <div class="muted" id="countLabel">0 spese</div>
         <div class="muted" id="sumLabel">Totale filtro: € 0,00</div>
@@ -267,7 +267,10 @@
       <button class="btn" id="btnReceiptGallery" type="button">🖼️ Allega scontrino</button>
       <button class="btn" id="btnReceiptPdf" type="button">📄 Importa PDF</button>
      </div>
-     <input accept="image/*" capture="environment" hidden id="inPhotoCam" type="file"> <input accept="image/*" hidden id="inPhoto" type="file"> <input accept="application/pdf" hidden id="inPdf" type="file"> <img id="receiptPreview" class="receiptPreview" alt="Anteprima scontrino" style="display:none; max-width:100%; border-radius:12px; margin-top:10px;">
+     <input accept="image/*" capture="environment" hidden id="inPhotoCam" type="file" multiple> 
+     <input accept="image/*" hidden id="inPhoto" type="file" multiple> 
+     <input accept="application/pdf" hidden id="inPdf" type="file" multiple> 
+     <img id="receiptPreview" class="receiptPreview" alt="Anteprima scontrino" style="display:none; max-width:100%; border-radius:12px; margin-top:10px;">
      <div class="hint muted" style="margin-top:6px">Se possibile, l’app prova a leggere importo e data automaticamente (OCR).</div>
      <div class="row" style="margin-top:10px">
       <button class="btn" id="btnOpenScanner" type="button">📄 OCR (offline)</button>
