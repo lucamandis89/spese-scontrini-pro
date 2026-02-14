@@ -482,8 +482,6 @@ input, select{
 }
 .toast.show{display:block}
 
-
-
 /* =========================
    v22 BANK UI (SAFE)
    - CSS-only visual upgrade
@@ -643,8 +641,6 @@ hr, .divider{ opacity: .55 !important; }
 /* Receipt buttons (v26) */
 .receiptActions .btn{ min-height: 46px; }
 
-
-
 /* ===============================
    Tap/Touch unblock patch (v26.3)
    Prevent decorative layers and pseudo-elements from capturing taps.
@@ -675,7 +671,6 @@ html, body { touch-action: manipulation; }
 #camVideo{width:100%; border-radius:14px; background:#000; max-height:52vh; object-fit:cover}
 .iconbtn{background:transparent; border:0; color:inherit; font-size:18px; padding:8px; border-radius:10px}
 
-
 /* ---- SETTINGS PAGE (safe) ---- */
 .page[data-page="settings"] .panel{padding:12px 12px; border:1px solid var(--border); border-radius:16px; background:rgba(255,255,255,.03); margin-top:10px}
 .page[data-page="settings"] .ptitle{font-weight:900; margin-bottom:6px}
@@ -685,8 +680,6 @@ html, body { touch-action: manipulation; }
 .page[data-page="settings"] select{width:100%; padding:12px 12px; border-radius:14px; border:1px solid var(--border); background:rgba(0,0,0,.18); color:var(--text)}
 .page[data-page="settings"] .rowActions{display:flex; gap:10px; flex-wrap:wrap; margin-top:12px}
 .btn.ghost{background:transparent; border:1px solid var(--border)}
-
-
 
 /* =========================
    UI MOBILE XL (APK/TWA)
@@ -822,9 +815,6 @@ td, th{
   border-radius: var(--r-2);
 }
 
-
-
-
 /* =========================
    ICONS ULTRA XXL
    ========================= */
@@ -887,9 +877,6 @@ button svg,
   font-size: var(--icon-fab) !important;
   line-height: 1 !important;
 }
-
-
-
 
 /* =========================
    APP-LIKE THEME (NO TRUNCATION)
@@ -992,9 +979,6 @@ button, .btn{
 .fab span, .floating-btn span, #fabAdd span, .add-btn span{
   font-size: 60px !important;
 }
-
-
-
 
 /* =========================
    PRO APP THEME (NO TRUNCATION)
@@ -1189,9 +1173,6 @@ button i, .btn i, button svg, .btn svg, .icon, .ico{
   --icon-fab: var(--pro-ico-fab) !important;
 }
 
-
-
-
 /* =========================
    v29.8 UI FIXES
    - stop vertical letter wrapping
@@ -1279,9 +1260,6 @@ nav.bottom button,
   display:block;
   opacity: 1;
 }
-
-
-
 
 /* =========================
    v30 CLEAN PRO UI
@@ -1384,9 +1362,6 @@ nav.bottom button span,
 .toast{
   bottom: calc(96px + env(safe-area-inset-bottom)) !important;
 }
-
-
-
 
 /* =========================
    v30.1 ACCOUNTING THEME
@@ -1571,9 +1546,6 @@ nav.bottom button span,
   box-shadow: 0 12px 26px rgba(2,6,23,.12) !important;
 }
 
-
-
-
 /* =========================
    v30.2 APK PERFECT UI
    - smaller nav icons
@@ -1672,9 +1644,6 @@ main, .container, .wrap, .page{
 .card, .panel, .box, .section, .sheet, .modal, .dialog{
   border-radius: 18px !important;
 }
-
-
-
 
 /* =========================
    v30.3 DARK PRO BACKGROUND + NAV FIX
@@ -1788,9 +1757,6 @@ main, .container, .wrap, .page{
 header, .topbar{ color: rgba(255,255,255,.92) !important; }
 header .subtitle, .topbar .subtitle{ color: rgba(255,255,255,.70) !important; }
 
-
-
-
 /* =========================
    v30.4 NAV + FAB FIX (APK)
    - no horizontal scroll
@@ -1860,9 +1826,6 @@ html, body{
 main, .container, .wrap, .page{
   padding-bottom: calc(110px + env(safe-area-inset-bottom)) !important;
 }
-
-
-
 
 /* =========================
    v30.6 FINAL COMPACT PRO
@@ -2005,9 +1968,6 @@ main, .container, .wrap, .page{
 /* Fix any accidental right overflow from shadows */
 *{ max-width: 100%; }
 
-
-
-
 /* =========================
    v30.7 READABILITY + APK-LIKE LAYOUT
    - Fix "Impostazioni" label visibility (no truncation)
@@ -2103,9 +2063,6 @@ input, select, textarea{
   border-color: rgba(255,255,255,.16) !important;
 }
 
-
-
-
 /* =========================
    v30.8 MODALS + ICONS FIX
    - Only one modal visible (JS) + better modal layer
@@ -2179,9 +2136,6 @@ main, .container, .wrap, .page{
   padding-bottom: calc(88px + env(safe-area-inset-bottom)) !important;
 }
 
-
-
-
 /* =========================
    v30.9 COMPACT SECTIONS
    - Dimezza visivamente le sezioni (card/form/btn)
@@ -2243,9 +2197,6 @@ table, th, td{ font-size: 12px !important; }
   max-height: 260px !important;
   object-fit: contain !important;
 }
-
-
-
 
 /* =========================
    v31.1 CLICK FIX + NAV FIX
@@ -2312,7 +2263,6 @@ main, .content, .page, .app, #app{
 #fabAdd{ left: calc(50% - 32px) !important; transform: translateX(-50%) !important; }
 #fabCam{ left: calc(50% + 32px) !important; transform: translateX(-50%) !important; }
 
-
 /* =========================
    v31.2 FAB CENTER
    ========================= */
@@ -2349,3 +2299,83 @@ main, .content, .page, .app, #app{
 
 /* v32 PRO locked visual */
 .locked{ opacity: .55; filter: grayscale(0.2); }
+
+/* =========================
+   v38.0 NUOVE FUNZIONALITÀ
+   ========================= */
+
+/* Checkbox personalizzati */
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.checkbox input {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+/* Lista promemoria */
+#reminderList li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+#reminderList button {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+#reminderList button:hover {
+  color: var(--text);
+}
+
+/* Tema chiaro (attivato via JS) */
+body.light-theme {
+  --bg: #f5f7fa;
+  --text: #1e293b;
+  --muted: #64748b;
+  --card: rgba(255,255,255,.9);
+  --border: rgba(0,0,0,.1);
+  --card2: rgba(0,0,0,.02);
+}
+body.light-theme .card,
+body.light-theme .panel,
+body.light-theme .modal .box {
+  background: rgba(255,255,255,.95) !important;
+}
+body.light-theme input,
+body.light-theme select,
+body.light-theme textarea {
+  background: #fff;
+  color: #1e293b;
+  border-color: #cbd5e1;
+}
+body.light-theme .btn {
+  background: #e2e8f0;
+  color: #1e293b;
+  border-color: #cbd5e1;
+}
+body.light-theme .btn.primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+/* --- NEW: Onboarding style --- */
+.onboarding-slide p {
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 12px 0;
+}
+#onboardingCounter {
+  font-weight: bold;
+}
