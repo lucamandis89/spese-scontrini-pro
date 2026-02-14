@@ -3759,3 +3759,231 @@ https://github.com/lucamandis89/spese-scontrini-pro/blob/c7a90222029a291ba093abb
 
   log("Ready ✅");
 })();
+/* ================================
+   ONE-TAP PICKER FIX v1 (CHIRURGICO, APPEND-ONLY)
+   Symptom: need to select twice (photo + PDF), sometimes picker opens multiple times.
+   Root cause: multiple competing handlers + inputs recreated => first change is missed.
+   Fix strategy:
+   - Use TWO dedicated hidden inputs in <body> (never destroyed):
+       #inPhoto__stable_v1  (image/*)
+       #inPdf__stable_v1    (application/pdf)
+   - Intercept user gesture on buttons using CAPTURE + closest():
+       #btnReceiptGallery  -> open stable photo input
+       #btnReceiptPdf      -> open stable pdf input
+     (works even when clicking on inner icon/text)
+   - Open ONLY on pointerup, click only blocks other handlers.
+   - Global 900ms lock per type to prevent multiple opens.
+   - Always reset input.value BEFORE opening and AFTER handling so selecting same file works.
+   - Dispatches into existing pipelines:
+       Photo: __sspReceipt.handle(file,"photo") OR handleReceiptOCR(file)
+       PDF:   uses __sspPdfFirstPageToPngFile / __sspPdfFirstPageToImageFile if present,
+              else loads PDF.js and converts page 1 -> JPEG, then __sspReceipt.handle(img,"pdf")
+   - Also sets __sspReceipt.file + __sspPdfLastImageFile for thumbnail persistence.
+   NOTE: does not remove/modify any existing code; it just "front-runs" the buttons.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_ONE_TAP_PICKERS_V1) return;
+  window.__SSP_ONE_TAP_PICKERS_V1 = true;
+
+  const log = (...a)=>{ try{ console.log("[ONE-TAP]", ...a); }catch(_){} };
+
+  function toastSafe(m){
+    try{ if(typeof toast==="function") toast(m); else alert(m); }catch(_){}
+  }
+
+  function ensureInput(id, accept){
+    let el = document.getElementById(id);
+    if(!el){
+      el = document.createElement("input");
+      el.type="file";
+      el.id=id;
+      el.style.display="none";
+      document.body.appendChild(el);
+    }
+    el.accept = accept;
+    el.multiple = false;
+    return el;
+  }
+
+  const inPhoto = ensureInput("inPhoto__stable_v1", "image/*");
+  const inPdf   = ensureInput("inPdf__stable_v1",   "application/pdf");
+
+  function canOpen(kind){
+    const now = Date.now();
+    const key = "__sspLastOpen_" + kind;
+    const last = window[key] || 0;
+    if(now - last < 900) return false;
+    window[key] = now;
+    return true;
+  }
+
+  function stopAll(e){
+    try{ e.preventDefault(); }catch(_){}
+    try{ e.stopPropagation(); }catch(_){}
+    try{ e.stopImmediatePropagation(); }catch(_){}
+  }
+
+  async function handlePhoto(file){
+    if(!file) return;
+    try{
+      window.__sspReceipt = window.__sspReceipt || {};
+      window.__sspReceipt.file = file;
+      window.__sspReceipt.getLastFile = ()=>file;
+
+      try{
+        const url = URL.createObjectURL(file);
+        const im = document.querySelector("#photoPrevImg") || document.querySelector("#receiptPreview");
+        const wrap = document.querySelector("#photoPrev");
+        if(im){
+          im.src = url;
+          if(wrap) wrap.style.display="block";
+          else im.style.display="";
+        }
+      }catch(_){}
+
+      if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+        await window.__sspReceipt.handle(file, "photo");
+        return;
+      }
+      if(typeof window.handleReceiptOCR === "function"){
+        await window.handleReceiptOCR(file);
+        return;
+      }
+      toastSafe("Foto caricata ✅");
+    }catch(err){
+      log("photo error", err);
+      toastSafe("Errore caricamento foto.");
+    }
+  }
+
+  function loadScriptOnce(src){
+    window.__sspScripts = window.__sspScripts || {};
+    if(window.__sspScripts[src]) return window.__sspScripts[src];
+    window.__sspScripts[src] = new Promise((res, rej)=>{
+      const s=document.createElement("script");
+      s.src=src; s.async=true;
+      s.onload=()=>res(true);
+      s.onerror=()=>rej(new Error("Load failed: "+src));
+      document.head.appendChild(s);
+    });
+    return window.__sspScripts[src];
+  }
+
+  async function ensurePdfJsReady(){
+    if(window.pdfjsLib && window.__sspPdfReady) return true;
+    if(!window.pdfjsLib){
+      await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+    }
+    if(!window.pdfjsLib) throw new Error("PDF.js missing");
+    try{
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    }catch(_){}
+    window.__sspPdfReady = true;
+    return true;
+  }
+
+  async function pdfFirstPageToImage(pdfFile){
+    if(typeof window.__sspPdfFirstPageToPngFile === "function"){
+      return await window.__sspPdfFirstPageToPngFile(pdfFile);
+    }
+    if(typeof window.__sspPdfFirstPageToImageFile === "function"){
+      return await window.__sspPdfFirstPageToImageFile(pdfFile);
+    }
+
+    await ensurePdfJsReady();
+    const buf = await pdfFile.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.6 });
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+    canvas.width  = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const blob = await new Promise((res)=>canvas.toBlob(res, "image/jpeg", 0.92));
+    if(!blob) throw new Error("PDF render failed");
+    const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
+    return new File([blob], name, { type:"image/jpeg" });
+  }
+
+  async function handlePdf(pdfFile){
+    if(!pdfFile) return;
+    try{
+      toastSafe("Importo PDF…");
+      const imgFile = await pdfFirstPageToImage(pdfFile);
+
+      window.__sspReceipt = window.__sspReceipt || {};
+      window.__sspReceipt.file = imgFile;
+      window.__sspReceipt.getLastFile = ()=>imgFile;
+      window.__sspPdfLastImageFile = imgFile;
+
+      try{
+        const url = URL.createObjectURL(imgFile);
+        const im = document.querySelector("#photoPrevImg") || document.querySelector("#receiptPreview");
+        const wrap = document.querySelector("#photoPrev");
+        if(im){
+          im.src = url;
+          if(wrap) wrap.style.display="block";
+          else im.style.display="";
+        }
+      }catch(_){}
+
+      if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+        await window.__sspReceipt.handle(imgFile, "pdf");
+        return;
+      }
+      if(typeof window.handleReceiptOCR === "function"){
+        await window.handleReceiptOCR(imgFile);
+        return;
+      }
+      toastSafe("PDF importato ✅");
+    }catch(err){
+      log("pdf error", err);
+      toastSafe("Errore import PDF.");
+    }
+  }
+
+  inPhoto.addEventListener("change", async ()=>{
+    const f = inPhoto.files && inPhoto.files[0];
+    await handlePhoto(f);
+    try{ inPhoto.value=""; }catch(_){}
+  });
+
+  inPdf.addEventListener("change", async ()=>{
+    const f = inPdf.files && inPdf.files[0];
+    await handlePdf(f);
+    try{ inPdf.value=""; }catch(_){}
+  });
+
+  // CLICK: block other handlers, never open
+  document.addEventListener("click", (e)=>{
+    const gBtn = e.target?.closest && e.target.closest("#btnReceiptGallery");
+    const pBtn = e.target?.closest && e.target.closest("#btnReceiptPdf");
+    if(!gBtn && !pBtn) return;
+    stopAll(e);
+  }, true);
+
+  // POINTERUP: open once
+  document.addEventListener("pointerup", (e)=>{
+    const gBtn = e.target?.closest && e.target.closest("#btnReceiptGallery");
+    if(gBtn){
+      stopAll(e);
+      if(!canOpen("photo")) return;
+      try{ inPhoto.value=""; }catch(_){}
+      try{ inPhoto.click(); }catch(_){}
+      return;
+    }
+    const pBtn = e.target?.closest && e.target.closest("#btnReceiptPdf");
+    if(pBtn){
+      stopAll(e);
+      if(!canOpen("pdf")) return;
+      try{ inPdf.value=""; }catch(_){}
+      try{ inPdf.click(); }catch(_){}
+      return;
+    }
+  }, true);
+
+  log("Ready ✅");
+})();
