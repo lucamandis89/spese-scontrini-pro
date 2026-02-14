@@ -3781,3 +3781,65 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
   window.__sspSetSimpleMode=setOn;
 })();
+/* ================================
+   SIMPLE MODE BUTTON FIX v1 (CHIRURGICO, APPEND-ONLY)
+   Fix: pulsante flottante "Semplice ON/OFF" non prende input (tap) su Chrome.
+   Solution:
+   - Force pointer-events:auto + touch-action
+   - Max z-index + new layer
+   - Rebind handlers (click + touchend) in capture phase
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_SIMPLE_BTN_FIX_V1) return;
+  window.__SSP_SIMPLE_BTN_FIX_V1 = true;
+
+  const LS_KEY="__sspSimpleMode";
+  const getOn=()=>{ try{return localStorage.getItem(LS_KEY)==="1";}catch(_){return false;} };
+  const setOn=(v)=>{
+    try{ localStorage.setItem(LS_KEY, v?"1":"0"); }catch(_){}
+    try{ document.body.classList.toggle("ssp-simple", v); }catch(_){}
+    try{
+      const fab=document.getElementById("sspSimpleFabV2");
+      if(fab) fab.textContent=v?"Semplice ON":"Semplice OFF";
+      const chk=document.getElementById("sspSimpleChkV2");
+      if(chk) chk.checked=v;
+    }catch(_){}
+    try{ if(typeof toast==="function") toast(v?"Modalità semplice: ON":"Modalità semplice: OFF"); }catch(_){}
+  };
+
+  function hardenFab(){
+    const fab = document.getElementById("sspSimpleFabV2");
+    if(!fab || !fab.parentNode) return;
+
+    // Always tappable
+    fab.style.pointerEvents = "auto";
+    fab.style.touchAction = "manipulation";
+    fab.style.userSelect = "none";
+    fab.style.webkitUserSelect = "none";
+    fab.style.zIndex = "2147483647";
+    fab.style.transform = "translateZ(0)";
+    fab.style.webkitTransform = "translateZ(0)";
+    fab.style.position = "fixed";
+
+    // Replace node to drop any broken listeners
+    const clone = fab.cloneNode(true);
+    fab.parentNode.replaceChild(clone, fab);
+
+    const handler = (ev)=>{
+      try{ ev.preventDefault(); }catch(_){}
+      try{ ev.stopPropagation(); }catch(_){}
+      try{ ev.stopImmediatePropagation(); }catch(_){}
+      setOn(!getOn());
+      return false;
+    };
+
+    // Capture beats overlay handlers
+    clone.addEventListener("click", handler, true);
+    clone.addEventListener("touchend", handler, {capture:true, passive:false});
+  }
+
+  document.addEventListener("DOMContentLoaded", ()=>setTimeout(hardenFab, 50));
+  setTimeout(hardenFab, 600);
+  setTimeout(hardenFab, 2000);
+})();
