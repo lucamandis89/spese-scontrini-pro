@@ -3035,3 +3035,235 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   }, 500);
 
 })();
+/* ================================
+   MULTI BATCH IMPORT v1 (CHIRURGICO, APPEND-ONLY)
+   Goal:
+   - Select multiple PHOTOS or multiple PDF in ONE picker open
+   - App processes them ALL sequentially (no re-open), creating entries and showing them in Home automatically.
+   - A prova di bug: guards against duplicate processing, continues on errors, never touches other features.
+   How it works:
+   - Forces multiple=true on the existing photo/pdf inputs (if present).
+   - Intercepts ONLY multi-selection change events (files.length>1) in CAPTURE phase.
+   - Runs a sequential queue:
+        photo -> feed to existing pipeline (__sspReceipt.handle / handleReceiptOCR)
+        pdf   -> converts page1 -> image then feeds pipeline
+   - Triggers safe UI refresh after each item.
+   Notes:
+   - Requires your existing single-file flow to be working (it is).
+   - Does NOT change your "single file" behavior.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_MULTI_BATCH_V1) return;
+  window.__SSP_MULTI_BATCH_V1 = true;
+
+  const log = (...a)=>{ try{ console.log("[MULTI BATCH v1]", ...a); }catch(_){} };
+
+  const toastSafe = (m, ms)=>{
+    try{
+      if(typeof toast === "function") toast(m, ms||1400);
+      else console.log(m);
+    }catch(_){}
+  };
+
+  // ---------- ensure inputs allow multiple
+  function forceMultiInputs(){
+    try{
+      const inputs = document.querySelectorAll("input[type='file']");
+      inputs.forEach(inp=>{
+        const acc = String(inp.accept||"").toLowerCase();
+        if(acc.includes("image") || acc.includes("pdf")){
+          inp.multiple = true;
+        }
+      });
+
+      // known ids (best effort)
+      ["inPhoto__stable_v1","inPhoto__oneTap_v2","inPhoto","inPhotoCam","inReceiptPhoto"].forEach(id=>{
+        const el = document.getElementById(id);
+        if(el && el.type==="file"){ el.multiple = true; if(!String(el.accept||"").toLowerCase().includes("image")) el.accept="image/*"; }
+      });
+      ["inPdf__stable_v1","inPdf__multi_v2","inPdf","inReceiptPdf"].forEach(id=>{
+        const el = document.getElementById(id);
+        if(el && el.type==="file"){ el.multiple = true; if(!String(el.accept||"").toLowerCase().includes("pdf")) el.accept="application/pdf"; }
+      });
+    }catch(_){}
+  }
+  document.addEventListener("DOMContentLoaded", forceMultiInputs);
+  setTimeout(forceMultiInputs, 700);
+  setTimeout(forceMultiInputs, 2000);
+
+  // ---------- pdf helpers
+  function loadScriptOnce(src){
+    window.__sspScripts = window.__sspScripts || {};
+    if(window.__sspScripts[src]) return window.__sspScripts[src];
+    window.__sspScripts[src] = new Promise((res, rej)=>{
+      const s=document.createElement("script");
+      s.src=src; s.async=true;
+      s.onload=()=>res(true);
+      s.onerror=()=>rej(new Error("Load failed: "+src));
+      document.head.appendChild(s);
+    });
+    return window.__sspScripts[src];
+  }
+  async function ensurePdfJsReady(){
+    if(window.pdfjsLib && window.__sspPdfReady) return true;
+    if(!window.pdfjsLib){
+      await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+    }
+    if(!window.pdfjsLib) throw new Error("PDF.js missing");
+    try{
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    }catch(_){}
+    window.__sspPdfReady = true;
+    return true;
+  }
+  function isPdfFile(f){
+    const name = String(f?.name||"").toLowerCase();
+    return f?.type === "application/pdf" || name.endsWith(".pdf");
+  }
+  function isImageFile(f){
+    return String(f?.type||"").startsWith("image/");
+  }
+  async function pdfFirstPageToImage(pdfFile){
+    if(typeof window.__sspPdfFirstPageToPngFile === "function"){
+      return await window.__sspPdfFirstPageToPngFile(pdfFile);
+    }
+    if(typeof window.__sspPdfFirstPageToImageFile === "function"){
+      return await window.__sspPdfFirstPageToImageFile(pdfFile);
+    }
+    await ensurePdfJsReady();
+    const buf = await pdfFile.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.6 });
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+    canvas.width  = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const blob = await new Promise((res)=>canvas.toBlob(res, "image/jpeg", 0.92));
+    if(!blob) throw new Error("PDF render failed");
+    const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
+    return new File([blob], name, { type:"image/jpeg" });
+  }
+
+  // ---------- preview + pipeline
+  async function showPreview(file){
+    try{
+      const url = URL.createObjectURL(file);
+      const im = document.querySelector("#photoPrevImg") || document.querySelector("#receiptPreview");
+      const wrap = document.querySelector("#photoPrev");
+      if(im){
+        im.src = url;
+        if(wrap) wrap.style.display="block";
+        else im.style.display="";
+      }
+    }catch(_){}
+  }
+
+  async function runPipeline(file, kind){
+    // Put into the app's expected holder
+    window.__sspReceipt = window.__sspReceipt || {};
+    window.__sspReceipt.file = file;
+    window.__sspReceipt.getLastFile = ()=>file;
+    if(kind === "pdf") window.__sspPdfLastImageFile = file;
+
+    await showPreview(file);
+
+    if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+      await window.__sspReceipt.handle(file, kind);
+      return true;
+    }
+    if(typeof window.handleReceiptOCR === "function"){
+      await window.handleReceiptOCR(file);
+      return true;
+    }
+    return false;
+  }
+
+  function refreshUI(){
+    try{
+      if(typeof window.__sspForceRefresh === "function") { window.__sspForceRefresh(); return; }
+    }catch(_){}
+    try{ if(typeof window.renderHome==="function") window.renderHome(); }catch(_){}
+    try{ if(typeof window.renderArchive==="function") window.renderArchive(); }catch(_){}
+    try{ if(typeof window.renderReport==="function") window.renderReport(); }catch(_){}
+    try{ if(typeof window.renderAll==="function") window.renderAll(); }catch(_){}
+    try{ if(typeof window.refreshUI==="function") window.refreshUI(); }catch(_){}
+    try{ if(typeof window.updateHome==="function") window.updateHome(); }catch(_){}
+  }
+
+  // ---------- queue with duplicate guard
+  window.__sspMultiProcessedKeys = window.__sspMultiProcessedKeys || {};
+  function fileKey(f){
+    try{ return [f.name||"", f.size||0, f.lastModified||0, f.type||""].join("::"); }catch(_){ return String(Math.random()); }
+  }
+
+  let busy = false;
+  async function processBatch(files){
+    if(busy) { toastSafe("Elaborazione già in corso…"); return; }
+    busy = true;
+    try{
+      const arr = Array.from(files||[]);
+      if(!arr.length) return;
+
+      // detect batch type mix and normalize per file
+      const total = arr.length;
+      toastSafe(`Elaboro ${total} file…`);
+
+      for(let i=0;i<total;i++){
+        const f = arr[i];
+        const key = fileKey(f);
+        if(window.__sspMultiProcessedKeys[key]) continue;
+        window.__sspMultiProcessedKeys[key] = true;
+
+        try{
+          if(isPdfFile(f)){
+            toastSafe(`Elaboro ${i+1}/${total} (PDF)…`, 1200);
+            const img = await pdfFirstPageToImage(f);
+            await runPipeline(img, "pdf");
+          }else if(isImageFile(f)){
+            toastSafe(`Elaboro ${i+1}/${total} (foto)…`, 1200);
+            await runPipeline(f, "photo");
+          }else{
+            // skip unknown
+          }
+          // Give the app a moment to autosave + render, then refresh UI
+          await new Promise(r=>setTimeout(r, 250));
+          refreshUI();
+          await new Promise(r=>setTimeout(r, 200));
+        }catch(err){
+          log("batch item error", err);
+          // allow re-try for that file if needed
+          try{ delete window.__sspMultiProcessedKeys[key]; }catch(_){}
+        }
+      }
+
+      toastSafe("Batch completato ✅");
+      refreshUI();
+    } finally {
+      busy = false;
+    }
+  }
+
+  // ---------- intercept only MULTI selections, so single-file flow stays untouched
+  document.addEventListener("change", (e)=>{
+    const t = e.target;
+    if(!t || t.tagName !== "INPUT" || t.type !== "file") return;
+    const files = t.files;
+    if(!files || files.length <= 1) return;
+
+    // If user selected multiple, we handle it and block other change handlers for this event
+    try{ e.stopImmediatePropagation(); }catch(_){}
+    try{ e.stopPropagation(); }catch(_){}
+
+    // IMPORTANT: do NOT reopen picker; just process.
+    processBatch(files);
+
+    // reset input so next batch can select same files again
+    setTimeout(()=>{ try{ t.value=""; }catch(_){ } }, 120);
+  }, true);
+
+  log("Ready ✅");
+})();
