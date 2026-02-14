@@ -1,4 +1,3 @@
-
 async function setLastReceiptFromFile(file){
   if(!file) return;
   lastReceiptBlob = file;
@@ -76,7 +75,7 @@ document.addEventListener('click', (e)=>{
   // =====================
   // IMPORTANT: bump this on every release so the app auto-clears stale caches
   // (prevents "tap does nothing" / old JS issues in PWA/APK wrappers)
-  const BUILD_ID = "v36.7_20260213185500";
+  const BUILD_ID = "v37.3_20260214120000";
   (async () => {
     try{
       const prev = localStorage.getItem("__ssp_build_id") || "";
@@ -110,8 +109,6 @@ document.addEventListener('click', (e)=>{
       if(el) el.addEventListener(ev, fn, opts);
     }catch(e){ /* never block */ }
   };
-
-  
 
 
 
@@ -231,6 +228,7 @@ function toast(msg, ms=1600){
 
   function euro(n){
     const v = Number(n||0);
+    if(isNaN(v)) return "€ 0,00";
     return "€ " + v.toFixed(2).replace(".", ",");
   }
 
@@ -250,27 +248,35 @@ function toast(msg, ms=1600){
     return `${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
   }
   function yyyymm(dateISO){
-    const d=new Date(dateISO);
-    if(isNaN(d)) return "";
+    if(!dateISO) return "";
+    const d = new Date(dateISO);
+    if(isNaN(d.getTime())) return "";
     return `${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
   }
 
   // Chrome-safe month normalization/extraction from strings (accepts "2026-2", ISO, dd/mm/yyyy, etc.)
   function monthNorm(s){
-    s = String(s||"").trim();
-    if(!s) return "";
-    // "YYYY-M" or "YYYY-MM"
-    let m = s.match(/^(\d{4})-(\d{1,2})$/);
-    if(m) return `${m[1]}-${String(m[2]).padStart(2,"0")}`;
-    // ISO date/datetime
-    m = s.match(/^(\d{4})-(\d{1,2})/);
-    if(m) return `${m[1]}-${String(m[2]).padStart(2,"0")}`;
-    // dd/mm/yyyy or dd-mm-yyyy or dd.mm.yyyy
-    m = s.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})/);
-    if(m) return `${m[3]}-${String(m[2]).padStart(2,"0")}`;
-    const d = new Date(s);
-    if(isNaN(d)) return "";
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    try {
+      s = String(s||"").trim();
+      if(!s) return "";
+      
+      if(/^\d{4}-\d{1,2}$/.test(s)) {
+        const [y,m] = s.split('-');
+        return `${y}-${pad2(m)}`;
+      }
+      
+      if(/^\d{4}-\d{2}-\d{2}/.test(s)) {
+        return s.substring(0,7);
+      }
+      
+      const m = s.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})/);
+      if(m) return `${m[3]}-${pad2(m[2])}`;
+      
+      const d = new Date(s);
+      return isNaN(d) ? "" : `${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
+    } catch(e) {
+      return "";
+    }
   }
   function escapeHtml(s){
     return String(s || "").replace(/[&<>"']/g, (m)=>({
@@ -285,7 +291,7 @@ function toast(msg, ms=1600){
     try { return JSON.parse(localStorage.getItem(APP.settingsKey)||"{}"); }
     catch { return {}; }
   }
-  const settings = loadSettings();
+  let settings = loadSettings();
   settings.isPro = !!settings.isPro;
   settings.pdfCountByMonth = settings.pdfCountByMonth || {};
   settings.viewMode = settings.viewMode || "list"; // list | timeline
@@ -319,6 +325,10 @@ function toast(msg, ms=1600){
 
   function saveSettings(){
     localStorage.setItem(APP.settingsKey, JSON.stringify(settings));
+    // Ricarica le impostazioni per assicurarsi che siano sincronizzate
+    try {
+      Object.assign(settings, JSON.parse(localStorage.getItem(APP.settingsKey)||"{}"));
+    } catch(_) {}
   }
 
   function setProUI(){
@@ -329,6 +339,13 @@ function toast(msg, ms=1600){
 
   // ---------------- NAV ----------------
   function showPage(name){
+    // Modalità semplice: blocca Archivio/Report (resta Home + Camera)
+    const __simpleOn = (()=>{ try{return localStorage.getItem("__sspSimpleMode")==="1";}catch(_){return false;} })();
+    if(__simpleOn && (name==="archive" || name==="report")){
+      try{ if(typeof toast==="function") toast("Modalità semplice: disponibili solo Home e Foto 📷"); }catch(_){ }
+      name = "home";
+    }
+
     document.querySelectorAll(".page").forEach(p=>{
       p.classList.toggle("active", p.getAttribute("data-page")===name);
     });
@@ -350,18 +367,23 @@ function toast(msg, ms=1600){
   let db=null;
   function openDB(){
     return new Promise((resolve,reject)=>{
-      const req=indexedDB.open(APP.dbName, APP.dbVersion);
-      req.onupgradeneeded=()=>{
-        const _db=req.result;
-        if(!_db.objectStoreNames.contains(APP.store)){
-          const st=_db.createObjectStore(APP.store,{keyPath:"id"});
-          st.createIndex("by_date","date",{unique:false});
-          st.createIndex("by_month","month",{unique:false});
-          st.createIndex("by_category","category",{unique:false});
-        }
-      };
-      req.onsuccess=()=>{ db=req.result; resolve(true); };
-      req.onerror=()=>reject(req.error);
+      try {
+        const req=indexedDB.open(APP.dbName, APP.dbVersion);
+        req.onupgradeneeded=()=>{
+          const _db=req.result;
+          if(!_db.objectStoreNames.contains(APP.store)){
+            const st=_db.createObjectStore(APP.store,{keyPath:"id"});
+            st.createIndex("by_date","date",{unique:false});
+            st.createIndex("by_month","month",{unique:false});
+            st.createIndex("by_category","category",{unique:false});
+          }
+        };
+        req.onsuccess=()=>{ db=req.result; resolve(true); };
+        req.onerror=()=>reject(req.error);
+      } catch(e) {
+        console.error("Errore apertura DB:", e);
+        resolve(false);
+      }
     });
   }
   function txStore(mode="readonly"){
@@ -398,11 +420,17 @@ function toast(msg, ms=1600){
 
   // ---------------- PHOTO / SCANNER ----------------
   async function fileToImage(file){
+    const url = URL.createObjectURL(file);
     return new Promise((resolve,reject)=>{
-      const url=URL.createObjectURL(file);
       const img=new Image();
-      img.onload=()=>{ URL.revokeObjectURL(url); resolve(img); };
-      img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error("Immagine non valida")); };
+      img.onload=()=>{ 
+        URL.revokeObjectURL(url); 
+        resolve(img); 
+      };
+      img.onerror=()=>{ 
+        URL.revokeObjectURL(url); 
+        reject(new Error("Immagine non valida")); 
+      };
       img.src=url;
     });
   }
@@ -509,7 +537,7 @@ function toast(msg, ms=1600){
   }
 
   function cafBadgeHtml(cat){
-    return isCaf(cat) ? `<span class="badge caf">⭐ Detraibile</span>` : "";
+    return isCaf(cat) ? `<span class="badge caf">⭐ Detraibile (730)</span>` : "";
   }
 
   function calcStats(){
@@ -727,13 +755,6 @@ function toast(msg, ms=1600){
 
 // ---------------- MODALS ----------------
   
-function hideAllModals(){
-  document.querySelectorAll('.modal').forEach(m=>{
-    m.classList.remove('show');
-    m.setAttribute('aria-hidden','true');
-  });
-  document.body.classList.remove('modal-open');
-}
 
 function openAdd(){
     editId=null;
@@ -768,7 +789,7 @@ function openAdd(){
     if(!x) return;
     modalCurrentId=id;
     $("#mTitle").textContent = `${x.note||"Spesa"} • ${euro(x.amount)}`;
-    $("#mMeta").textContent = `${x.date} • ${x.category}${isCaf(x.category) ? " • Detraibile (CAF)" : ""} • ${x.month}`;
+    $("#mMeta").textContent = `${x.date} • ${x.category}${isCaf(x.category) ? " • Detraibile (730)" : ""} • ${x.month}`;
     const img=$("#mImg");
     if(x.photo){
       img.src=x.photo;
@@ -1177,7 +1198,6 @@ function openAdd(){
   }
 
   // ---------------- COMMERCIALISTA (PACCHETTO: CSV + PDF + opz. foto) ----------------
-  function pad2(n){ return String(n).padStart(2,'0'); }
   function firstDayOfMonth(ym){
     // ym: YYYY-MM
     const [y,m] = String(ym||'').split('-').map(Number);
@@ -1794,7 +1814,7 @@ $("#addClose").addEventListener("click", closeAdd);
 
   // ---------------- START ----------------
   if("serviceWorker" in navigator){
-    window.addEventListener("load", ()=>navigator.serviceWorker.register("./sw.js?v=36.7").catch(()=>{}));
+    window.addEventListener("load", ()=>navigator.serviceWorker.register("./sw.js?v=37.2").catch(()=>{}));
   }
 
   (async function start(){
@@ -2024,6 +2044,18 @@ $("#addClose").addEventListener("click", closeAdd);
     .map(l => l.trim())
     .filter(Boolean);
 
+  // PRIORITÀ BUONI/SPENDI E RIPRENDI (es. CRAI): "VALE EUR 5,00" deve vincere su "SPESA MINIMA 30,00"
+  // Gestisce OCR sporco: EUR/EURO/EJR ecc, e ritorni a capo.
+  const __valeMatch = String(text||"").match(/VALE\s*(?:E[UO]?R|EURO|EJR|EUR)?\s*[:\-]?\s*([0-9]{1,6}(?:[.,][0-9]{1,2})?)/i);
+  if(__valeMatch){
+    const raw = __valeMatch[1];
+    const norm = raw.includes(",") ? raw : raw.replace(".", ",");
+    const v = parseEuro(norm);
+    if(Number.isFinite(v) && v>0) return v;
+  }
+
+
+
   // Normalizza per matching keyword: rimuove spazi, converte cifre "ambigue" in lettere.
   const normKey = (s) => String(s || "")
     .toUpperCase()
@@ -2039,6 +2071,9 @@ $("#addClose").addEventListener("click", closeAdd);
 
   const extractAmountsFromLine = (s) => {
     const str = String(s || "");
+    // Ignora importi su righe di "SPESA MINIMA" / "MINIMA DI" (non sono totali reali)
+    const up = str.toUpperCase();
+    if(up.includes("SPESA MINIMA") || up.includes("MINIMA DI") || up.includes("MINIMO")) return [];
     // accetta: 10,96 | 1.234,56 | 1234,56 | 10.96
     const reAmt = /(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}|\d+\.\d{2})/g;
     const out = [];
@@ -3657,6 +3692,16 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   function apply(){
     try{
       document.body.classList.toggle("ssp-simple", getOn());
+      // Nasconde elementi avanzati anche se non marcati
+      try{
+        const on = getOn();
+        const ep = document.getElementById("ocrEndpointInput");
+        if(ep){
+          const row = ep.closest(".formRow") || ep.parentElement;
+          if(row) row.style.display = on ? "none" : "";
+        }
+      }catch(_){}
+
       const chk=document.getElementById("sspSimpleChkV2");
       if(chk) chk.checked=getOn();
       const fab=document.getElementById("sspSimpleFabV2");
@@ -3671,6 +3716,20 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
     s.textContent=`
       body.ssp-simple [data-adv="1"]{ display:none !important; }
       body.ssp-simple .ssp-adv-block{ display:none !important; }
+
+      /* NAV/PAGINE: modalità semplice = solo Home + Camera */
+      body.ssp-simple .bottomNav .navBtn[data-nav="archive"],
+      body.ssp-simple .bottomNav .navBtn[data-nav="report"],
+      body.ssp-simple .bottomNav .navBtn[data-nav="settings"]{ display:none !important; }
+
+      body.ssp-simple .page[data-page="archive"],
+      body.ssp-simple .page[data-page="report"]{ display:none !important; }
+
+      body.ssp-simple #fabAdd{ display:none !important; } /* resta solo 📷 */
+
+      /* Impostazioni: nasconde endpoint (avanzato) */
+      body.ssp-simple #ocrEndpointInput{ display:none !important; }
+      body.ssp-simple #ocrEndpointInput + *{ display:none !important; }
 
       #sspSimpleFabV2{
         position:fixed; right:12px; bottom:86px; z-index:99999;
@@ -4041,82 +4100,136 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 })();
 
 /* ================================
-   FINAL PATCH v1: SIMPLE TOGGLE ULTRA-RELIABLE (CHIRURGICO, APPEND-ONLY)
-   Fix: il bottone "Semplice ON/OFF" funziona solo una volta.
-   Cause tipica: listener duplicati + clone/replace di patch precedenti.
-   Soluzione:
-   - Aggancia un SOLO handler globale in capture su pointerdown
-   - Hit-test sul rettangolo del bottone
-   - Debounce anti doppio tap (350ms)
-   - Forza sempre label coerente
-   - Rilancia harden su DOM mutations e after timers (best-effort)
+   HOTFIX v2: (A) SIMPLE TOGGLE INSTANT + NO DOUBLE TAP  (B) AUTO-SAVE PHOTO IN SIMPLE MODE
+   - Fix: il bottone "Semplice ON/OFF" a volte risponde lento o non subito.
+     Causa: più listener (click/touch/capture) + scansioni DOM ad ogni toggle.
+     Soluzione: usa POINTERDOWN in capture + lock anti-doppio + update UI immediata.
+   - Fix: "non carica le foto automaticamente" in modalità semplice.
+     Soluzione: quando SIMPLE=ON e selezioni/scatti una foto/PDF:
+       * esegue OCR (se disponibile)
+       * se importo+data sono validi => auto-click su Salva (anche se l'autosave impostazioni è OFF)
+   APPEND-ONLY: non rimuove nulla, ma intercetta prima.
    ================================ */
 (function(){
   "use strict";
-  if (window.__SSP_SIMPLE_TOGGLE_FINAL_V1) return;
-  window.__SSP_SIMPLE_TOGGLE_FINAL_V1 = true;
+  if(window.__SSP_HOTFIX_V2_SIMPLE_FAST) return;
+  window.__SSP_HOTFIX_V2_SIMPLE_FAST = true;
 
-  const LS_KEY="__sspSimpleMode";
-  const getOn=()=>{ try{return localStorage.getItem(LS_KEY)==="1";}catch(_){return false;} };
-  const setOn=(v)=>{
-    try{ localStorage.setItem(LS_KEY, v?"1":"0"); }catch(_){ }
-    try{ document.body.classList.toggle("ssp-simple", v); }catch(_){ }
+  const LS_KEY = "__sspSimpleMode";
+  const getOn = ()=>{ try{return localStorage.getItem(LS_KEY)==="1";}catch(_){return false;} };
+  const setOnFast = (v)=>{
+    const on = !!v;
+    try{ localStorage.setItem(LS_KEY, on?"1":"0"); }catch(_){ }
+    try{ document.body.classList.toggle("ssp-simple", on); }catch(_){ }
     try{
       const fab=document.getElementById("sspSimpleFabV2");
-      if(fab) fab.textContent=v?"Semplice ON":"Semplice OFF";
+      if(fab) fab.textContent = on?"Semplice ON":"Semplice OFF";
       const chk=document.getElementById("sspSimpleChkV2");
-      if(chk) chk.checked=v;
+      if(chk) chk.checked = on;
     }catch(_){ }
-    // Se esiste un setter più completo, lo chiamiamo (best-effort)
-    try{ if(typeof window.__sspSetSimpleMode === "function") window.__sspSetSimpleMode(v); }catch(_){ }
   };
 
-  let lastTap=0;
+  // Expose as the canonical setter (other patches may call it)
+  window.__sspSetSimpleModeFast = setOnFast;
 
-  function harden(){
-    const fab=document.getElementById("sspSimpleFabV2");
-    if(!fab) return;
-    try{
-      fab.style.pointerEvents="auto";
-      fab.style.touchAction="manipulation";
-      fab.style.userSelect="none";
-      fab.style.webkitUserSelect="none";
-      fab.style.zIndex="2147483647";
-      fab.style.transform="translateZ(0)";
-      fab.style.webkitTransform="translateZ(0)";
-    }catch(_){ }
-    try{ fab.textContent=getOn()?"Semplice ON":"Semplice OFF"; }catch(_){ }
+  // ---------- Fast toggle handler (capture) ----------
+  let lastToggleAt = 0;
+  function fastToggle(ev){
+    const now = Date.now();
+    if(now - lastToggleAt < 350) return; // anti doppio tap (touchend+click)
+    lastToggleAt = now;
+    try{ ev.preventDefault(); }catch(_){ }
+    try{ ev.stopPropagation(); }catch(_){ }
+    try{ ev.stopImmediatePropagation(); }catch(_){ }
+    const next = !getOn();
+    setOnFast(next);
+    try{ if(typeof toast === 'function') toast(next?"Modalità semplice: ON":"Modalità semplice: OFF", 900); }catch(_){ }
   }
 
-  function onGlobalPointerDown(ev){
-    const fab=document.getElementById("sspSimpleFabV2");
+  function bindFastFab(){
+    const fab = document.getElementById("sspSimpleFabV2");
     if(!fab) return;
-    const r=fab.getBoundingClientRect();
-    const x=ev.clientX, y=ev.clientY;
+
+    // Make sure it's always tappable and above overlays
+    fab.style.pointerEvents = "auto";
+    fab.style.touchAction = "manipulation";
+    fab.style.zIndex = "2147483647";
+    fab.style.transform = "translateZ(0)";
+
+    // Bind pointerdown in capture so it fires immediately
+    // (and before other click/touch handlers)
+    fab.addEventListener("pointerdown", fastToggle, true);
+  }
+
+  // Global safety net: if tap happens inside FAB rect, toggle anyway.
+  function globalHit(ev){
+    const fab = document.getElementById("sspSimpleFabV2");
+    if(!fab) return;
+    const r = fab.getBoundingClientRect();
+    const pt = (ev.changedTouches && ev.changedTouches[0]) || ev;
+    const x = pt.clientX, y = pt.clientY;
     if(x==null || y==null) return;
-    if(x<r.left || x>r.right || y<r.top || y>r.bottom) return;
-
-    const now=Date.now();
-    if(now-lastTap<350){ ev.preventDefault?.(); return; }
-    lastTap=now;
-
-    ev.preventDefault?.();
-    ev.stopPropagation?.();
-    ev.stopImmediatePropagation?.();
-
-    setOn(!getOn());
-    harden();
+    if(x>=r.left && x<=r.right && y>=r.top && y<=r.bottom){
+      fastToggle(ev);
+    }
   }
 
-  // Un solo handler globale (capture batte overlay)
-  document.addEventListener("pointerdown", onGlobalPointerDown, true);
+  document.addEventListener("DOMContentLoaded", ()=>{
+    setTimeout(()=>{ setOnFast(getOn()); bindFastFab(); }, 50);
+  });
+  setTimeout(()=>{ setOnFast(getOn()); bindFastFab(); }, 700);
 
-  // Mantieni tappabile anche se altre patch lo ricreano
-  const mo=new MutationObserver(()=>harden());
-  try{ mo.observe(document.documentElement,{subtree:true,childList:true,attributes:true}); }catch(_){ }
+  // capture phase (works even if overlays steal events)
+  document.addEventListener("touchstart", globalHit, {capture:true, passive:false});
+  document.addEventListener("pointerdown", globalHit, true);
 
-  document.addEventListener("DOMContentLoaded", ()=>setTimeout(harden,60));
-  setTimeout(harden,600);
-  setTimeout(harden,2200);
-  setTimeout(harden,4000);
+  // ---------- Auto-save in SIMPLE mode when selecting/scanning a receipt ----------
+  function parseNum(v){
+    const s = String(v||"").trim().replace(/\./g, "").replace(/,/g, ".");
+    const n = Number(s);
+    return Number.isFinite(n)? n : NaN;
+  }
+  function canAutoSave(){
+    const m = document.getElementById("modalAdd");
+    if(!m || !m.classList || !m.classList.contains("show")) return false;
+    // do not auto-save while editing an existing receipt
+    try{ if(typeof window.editId !== 'undefined' && window.editId) return false; }catch(_){ }
+    const amt = parseNum(document.getElementById("inAmount")?.value);
+    const dt  = String(document.getElementById("inDate")?.value || "").trim();
+    return Number.isFinite(amt) && amt>0 && !!dt;
+  }
+
+  let autoSaveLock = 0;
+  async function tryAutoSaveSoon(){
+    if(!getOn()) return; // only in simple mode
+    const now = Date.now();
+    if(now - autoSaveLock < 2500) return;
+
+    // Wait a bit for OCR to fill fields
+    await new Promise(r=>setTimeout(r, 350));
+    if(!canAutoSave()){
+      // wait a little more (OCR may be slower)
+      await new Promise(r=>setTimeout(r, 650));
+    }
+    if(!canAutoSave()) return;
+
+    autoSaveLock = Date.now();
+    const btn = document.getElementById("btnSave");
+    if(btn) btn.click();
+  }
+
+  // Intercept selection changes on photo/pdf inputs (capture) to schedule auto-save.
+  document.addEventListener("change", (e)=>{
+    const t = e.target;
+    if(!t || t.tagName !== 'INPUT' || t.type !== 'file') return;
+    const id = t.id || "";
+    // photo/camera/pdf inputs known in this app
+    if(id === "inPhoto" || id === "inPhotoCam" || id === "inPdf" || id === "inPdfMulti" || id.includes("Pdf") || id.includes("Photo")){
+      // schedule after existing handlers run
+      setTimeout(()=>{ tryAutoSaveSoon(); }, 80);
+    }
+  }, true);
+
+  // Also listen to the app custom event (when present)
+  window.addEventListener('ssp:ocr-filled', ()=>{ tryAutoSaveSoon(); }, {passive:true});
 })();
