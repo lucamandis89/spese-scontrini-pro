@@ -3598,3 +3598,36 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
   log("Ready ✅");
 })();
+/* ================================
+   SIMPLE MODE: KEEP MULTI IMPORT v1 (APPEND-ONLY)
+   Use with patch_simple_mode_v1.js
+   - Ensures in Modalità semplice, multi photo/pdf import buttons stay visible.
+   - Does not modify any logic.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_SIMPLE_MODE_ALLOW_MULTI_V1) return;
+  window.__SSP_SIMPLE_MODE_ALLOW_MULTI_V1 = true;
+
+  function inject(){
+    if(document.getElementById("sspSimpleAllowMultiCss")) return;
+    const css = document.createElement("style");
+    css.id = "sspSimpleAllowMultiCss";
+    css.textContent = `
+      /* In modalità semplice, NON nascondere i bottoni multi */
+      body.ssp-simple #btnReceiptPdfMulti,
+      body.ssp-simple #btnImportPdfMulti,
+      body.ssp-simple #btnImportZipMulti
+      { display:inline-flex !important; }
+
+      /* Se hai un bottone multi-foto dedicato, lascialo visibile */
+      body.ssp-simple #btnReceiptGalleryMulti,
+      body.ssp-simple #btnPhotoMulti
+      { display:inline-flex !important; }
+    `;
+    document.head.appendChild(css);
+  }
+
+  document.addEventListener("DOMContentLoaded", inject);
+  setTimeout(inject, 600);
+})();
