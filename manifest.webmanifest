@@ -1,0 +1,72 @@
+{
+  "name": "Scontrini Facili Pro",
+  "short_name": "Scontrini Pro",
+  "description": "Gestione spese e scontrini con foto, backup e PDF. Funziona offline.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0f17",
+  "theme_color": "#0b0f17",
+  "lang": "it",
+  "icons": [
+    {
+      "src": "assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Aggiungi spesa",
+      "short_name": "Aggiungi",
+      "description": "Inserisci una nuova spesa",
+      "url": "./#add",
+      "icons": [
+        {
+          "src": "./favicon.ico",
+          "sizes": "64x64",
+          "type": "image/x-icon"
+        }
+      ]
+    },
+    {
+      "name": "Archivio",
+      "short_name": "Archivio",
+      "description": "Vedi archivio spese",
+      "url": "./#archive",
+      "icons": [
+        {
+          "src": "./favicon.ico",
+          "sizes": "64x64",
+          "type": "image/x-icon"
+        }
+      ]
+    },
+    {
+      "name": "Report",
+      "short_name": "Report",
+      "description": "PDF e analisi",
+      "url": "./#report",
+      "icons": [
+        {
+          "src": "./favicon.ico",
+          "sizes": "64x64",
+          "type": "image/x-icon"
+        }
+      ]
+    }
+  ]
+}
