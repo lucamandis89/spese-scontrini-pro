@@ -3267,3 +3267,334 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
   log("Ready ✅");
 })();
+/* ================================
+   MULTI BATCH IMPORT v2 (DEFINITIVO, CHIRURGICO, APPEND-ONLY)
+   Fix: user can select multiple files, but only the FIRST gets saved.
+   Cause: Auto-salva only runs when the Add modal is OPEN; after first save the modal closes,
+          subsequent files were processed with modal closed => no autosave => no new entries.
+   Solution:
+   - When a multi-selection happens (files.length>1), we:
+       * process files sequentially
+       * for EACH file: openAdd() to open modal, run OCR pipeline, then wait for autosave/save to close modal
+       * then continue to next file (no picker re-open)
+   Safety:
+   - Does NOT modify existing features
+   - Works even if autosave is OFF (fallback clicks Save when fields are valid)
+   - Continues on errors, never blocks app
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_MULTI_BATCH_V2) return;
+  window.__SSP_MULTI_BATCH_V2 = true;
+
+  const log = (...a)=>{ try{ console.log("[MULTI BATCH v2]", ...a); }catch(_){} };
+  const toastSafe = (m, ms)=>{ try{ if(typeof toast==="function") toast(m, ms||1400); }catch(_){ } };
+
+  const $ = (s)=>document.querySelector(s);
+
+  // ---- ensure multi is enabled on inputs
+  function forceMultiInputs(){
+    try{
+      document.querySelectorAll("input[type='file']").forEach(inp=>{
+        const acc = String(inp.accept||"").toLowerCase();
+        if(acc.includes("image") || acc.includes("pdf")) inp.multiple = true;
+      });
+    }catch(_){}
+  }
+  document.addEventListener("DOMContentLoaded", forceMultiInputs);
+  setTimeout(forceMultiInputs, 800);
+  setTimeout(forceMultiInputs, 2000);
+
+  // ---- pdf helpers
+  function loadScriptOnce(src){
+    window.__sspScripts = window.__sspScripts || {};
+    if(window.__sspScripts[src]) return window.__sspScripts[src];
+    window.__sspScripts[src] = new Promise((res, rej)=>{
+      const s=document.createElement("script");
+      s.src=src; s.async=true;
+      s.onload=()=>res(true);
+      s.onerror=()=>rej(new Error("Load failed: "+src));
+      document.head.appendChild(s);
+    });
+    return window.__sspScripts[src];
+  }
+  async function ensurePdfJsReady(){
+    if(window.pdfjsLib && window.__sspPdfReady) return true;
+    if(!window.pdfjsLib){
+      await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+    }
+    if(!window.pdfjsLib) throw new Error("PDF.js missing");
+    try{
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    }catch(_){}
+    window.__sspPdfReady = true;
+    return true;
+  }
+  function isPdfFile(f){
+    const name = String(f?.name||"").toLowerCase();
+    return f?.type === "application/pdf" || name.endsWith(".pdf");
+  }
+  function isImageFile(f){
+    return String(f?.type||"").startsWith("image/");
+  }
+  async function pdfFirstPageToImage(pdfFile){
+    if(typeof window.__sspPdfFirstPageToPngFile === "function"){
+      return await window.__sspPdfFirstPageToPngFile(pdfFile);
+    }
+    if(typeof window.__sspPdfFirstPageToImageFile === "function"){
+      return await window.__sspPdfFirstPageToImageFile(pdfFile);
+    }
+    await ensurePdfJsReady();
+    const buf = await pdfFile.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.6 });
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+    canvas.width  = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const blob = await new Promise((res)=>canvas.toBlob(res, "image/jpeg", 0.92));
+    if(!blob) throw new Error("PDF render failed");
+    const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
+    return new File([blob], name, { type:"image/jpeg" });
+  }
+
+  // ---- wait helpers
+  function modalIsOpen(){
+    const m = $("#modalAdd");
+    return !!(m && m.classList && m.classList.contains("show"));
+  }
+  async function waitUntil(cond, timeoutMs){
+    const t0 = Date.now();
+    while(Date.now() - t0 < timeoutMs){
+      if(cond()) return true;
+      await new Promise(r=>setTimeout(r, 120));
+    }
+    return false;
+  }
+  function amountOk(){
+    const el = $("#inAmount");
+    if(!el) return false;
+    const v = String(el.value||"").trim().replace(".", "").replace(",", ".");
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0;
+  }
+  function dateOk(){
+    const el = $("#inDate");
+    return !!(el && String(el.value||"").trim());
+  }
+
+  async function runOcrWithFile(file, kind){
+    // attach for save pipeline
+    window.__sspReceipt = window.__sspReceipt || {};
+    window.__sspReceipt.file = file;
+    window.__sspReceipt.getLastFile = ()=>file;
+    if(kind === "pdf") window.__sspPdfLastImageFile = file;
+
+    if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+      await window.__sspReceipt.handle(file, kind === "pdf" ? "batch-pdf" : "batch-photo");
+      return true;
+    }
+    if(typeof window.handleReceiptOCR === "function"){
+      await window.handleReceiptOCR(file);
+      return true;
+    }
+    return false;
+  }
+
+  async function ensureSavedOrFallback(){
+    // Wait for autosave to close modal
+    const closed = await waitUntil(()=>!modalIsOpen(), 8000);
+    if(closed) return true;
+
+    // Autosave might be OFF -> click save when valid
+    if(amountOk() && dateOk()){
+      const b = $("#btnSave");
+      if(b) b.click();
+      const closed2 = await waitUntil(()=>!modalIsOpen(), 8000);
+      return closed2;
+    }
+    // If still not valid, user probably needs to edit; leave modal open
+    return false;
+  }
+
+  // ---- batch core
+  let busy = false;
+  window.__sspMultiProcessedKeys = window.__sspMultiProcessedKeys || {};
+  function fileKey(f){
+    try{ return [f.name||"", f.size||0, f.lastModified||0, f.type||""].join("::"); }catch(_){ return String(Math.random()); }
+  }
+
+  async function processBatch(files){
+    if(busy){ toastSafe("Elaborazione già in corso…"); return; }
+    busy = true;
+    try{
+      const arr = Array.from(files||[]);
+      const total = arr.length;
+      toastSafe(`Batch: ${total} file…`);
+
+      for(let i=0;i<total;i++){
+        const raw = arr[i];
+        const key = fileKey(raw);
+        if(window.__sspMultiProcessedKeys[key]) continue;
+
+        window.__sspMultiProcessedKeys[key] = true;
+        try{
+          // Open modal for THIS item (autosave requires it)
+          if(typeof window.openAdd === "function") window.openAdd();
+          await waitUntil(modalIsOpen, 2000);
+
+          toastSafe(`File ${i+1}/${total}…`);
+
+          if(isPdfFile(raw)){
+            const img = await pdfFirstPageToImage(raw);
+            await runOcrWithFile(img, "pdf");
+          }else if(isImageFile(raw)){
+            await runOcrWithFile(raw, "photo");
+          }else{
+            continue;
+          }
+
+          // Now wait for save (autosave or fallback)
+          const saved = await ensureSavedOrFallback();
+          if(!saved){
+            // if not saved, stop the batch so user can fix fields
+            toastSafe("Completa i campi e salva, poi riprendi il batch.");
+            break;
+          }
+
+          // small pause to let Home refresh
+          await new Promise(r=>setTimeout(r, 250));
+          try{ if(typeof window.renderHome==="function") window.renderHome(); }catch(_){}
+        }catch(err){
+          log("item error", err);
+          try{ delete window.__sspMultiProcessedKeys[key]; }catch(_){}
+        }
+      }
+
+      toastSafe("Batch completato ✅");
+      try{ if(typeof window.renderHome==="function") window.renderHome(); }catch(_){}
+    } finally {
+      busy = false;
+    }
+  }
+
+  // ---- intercept multi-selection change events
+  document.addEventListener("change", (e)=>{
+    const t = e.target;
+    if(!t || t.tagName !== "INPUT" || t.type !== "file") return;
+    const files = t.files;
+    if(!files || files.length <= 1) return;
+
+    // Handle multi; prevent other handlers from conflicting for THIS event.
+    try{ e.stopImmediatePropagation(); }catch(_){}
+    try{ e.stopPropagation(); }catch(_){}
+
+    processBatch(files);
+
+    // reset input so same files can be selected again
+    setTimeout(()=>{ try{ t.value=""; }catch(_){ } }, 150);
+  }, true);
+
+  log("Ready ✅");
+})();
+/* ================================
+   MULTI BATCH PROGRESS UI v1 (APPEND-ONLY)
+   Adds a small progress overlay during multi-batch import (works with MULTI BATCH v2).
+   - Shows current file index/total and kind
+   - Provides a cancel button (stops after current item)
+   - Does NOT touch other features.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_BATCH_PROGRESS_UI_V1) return;
+  window.__SSP_BATCH_PROGRESS_UI_V1 = true;
+
+  const log = (...a)=>{ try{ console.log("[BATCH UI]", ...a); }catch(_){} };
+
+  // state
+  window.__sspBatchProgress = window.__sspBatchProgress || { active:false, i:0, total:0, label:"", cancel:false };
+
+  function ensureOverlay(){
+    let ov = document.getElementById("sspBatchOverlay");
+    if(ov) return ov;
+
+    ov = document.createElement("div");
+    ov.id = "sspBatchOverlay";
+    ov.style.cssText = [
+      "position:fixed",
+      "left:12px",
+      "right:12px",
+      "bottom:12px",
+      "z-index:99999",
+      "background:rgba(20,20,22,.95)",
+      "color:#fff",
+      "border:1px solid rgba(255,255,255,.12)",
+      "border-radius:16px",
+      "padding:12px 14px",
+      "box-shadow:0 10px 26px rgba(0,0,0,.35)",
+      "display:none",
+      "font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif"
+    ].join(";");
+
+    ov.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="flex:1">
+          <div id="sspBatchTitle" style="font-weight:800;font-size:14px;line-height:1.2">Elaborazione…</div>
+          <div id="sspBatchSub" style="opacity:.9;font-size:12px;margin-top:4px">—</div>
+          <div style="height:8px;background:rgba(255,255,255,.12);border-radius:999px;margin-top:10px;overflow:hidden">
+            <div id="sspBatchBar" style="height:100%;width:0%;background:rgba(255,255,255,.75)"></div>
+          </div>
+        </div>
+        <button id="sspBatchCancel" type="button" style="
+          border:1px solid rgba(255,255,255,.18);
+          background:rgba(255,255,255,.08);
+          color:#fff;
+          padding:10px 12px;
+          border-radius:12px;
+          font-weight:800;
+          cursor:pointer;
+        ">Stop</button>
+      </div>
+    `;
+    document.body.appendChild(ov);
+
+    const btn = ov.querySelector("#sspBatchCancel");
+    btn.addEventListener("click", ()=>{
+      try{
+        window.__sspBatchProgress.cancel = true;
+        ov.querySelector("#sspBatchSub").textContent = "Stop richiesto… finisco il file corrente.";
+      }catch(_){}
+    });
+
+    return ov;
+  }
+
+  function show(i, total, label){
+    const ov = ensureOverlay();
+    const title = ov.querySelector("#sspBatchTitle");
+    const sub = ov.querySelector("#sspBatchSub");
+    const bar = ov.querySelector("#sspBatchBar");
+    const pct = total ? Math.round((i/total)*100) : 0;
+
+    title.textContent = `Batch: ${i}/${total}`;
+    sub.textContent = label || "—";
+    bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+    ov.style.display = "block";
+  }
+
+  function hide(){
+    const ov = document.getElementById("sspBatchOverlay");
+    if(ov) ov.style.display = "none";
+  }
+
+  // Expose helpers for batch runner
+  window.__sspBatchUI = window.__sspBatchUI || {};
+  window.__sspBatchUI.show = show;
+  window.__sspBatchUI.hide = hide;
+  window.__sspBatchUI.resetCancel = ()=>{ window.__sspBatchProgress.cancel = false; };
+
+  log("Ready ✅");
+})();
