@@ -4164,3 +4164,217 @@ https://github.com/lucamandis89/spese-scontrini-pro/blob/c7a90222029a291ba093abb
 
   log("Ready ✅");
 })();
+/* ================================
+   UNIVERSAL PICKER FIX v5 (CHIRURGICO, APPEND-ONLY)
+   Fixes:
+   1) Picker re-opens 2x after OK (multiple .click() on file inputs) -> throttles file-input clicks globally.
+   2) First selection not processed (OCR doesn't start, amount empty -> validation blocks save) ->
+      universal "mirror" processor: processes any single selected image/pdf once, without depending on button IDs.
+   Safety:
+   - Does NOT remove or modify existing features.
+   - Does NOT stop propagation on change; it only runs its own guarded processor.
+   - Guards by file signature to avoid double OCR.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_PICKER_UNIVERSAL_V5) return;
+  window.__SSP_PICKER_UNIVERSAL_V5 = true;
+
+  const log = (...a)=>{ try{ console.log("[PICKER v5]", ...a); }catch(_){} };
+  const toastSafe = (m)=>{ try{ if(typeof toast==="function") toast(m); }catch(_){ } };
+
+  // ------------------------
+  // 1) GLOBAL THROTTLE for file input .click()
+  // ------------------------
+  try{
+    const proto = HTMLInputElement && HTMLInputElement.prototype;
+    if(proto && !proto.__sspClickWrapped){
+      const orig = proto.click;
+      proto.click = function(){
+        try{
+          if(this && this.type === "file"){
+            const now = Date.now();
+            const last = window.__sspFileClickLast || 0;
+            const lastEl = window.__sspFileClickEl || null;
+            // block rapid repeats (same or different file inputs) within 1200ms
+            if(now - last < 1200){
+              log("blocked file click (throttle)");
+              return;
+            }
+            window.__sspFileClickLast = now;
+            window.__sspFileClickEl = this;
+          }
+        }catch(_){}
+        return orig.apply(this, arguments);
+      };
+      proto.__sspClickWrapped = true;
+      log("file click throttling ON");
+    }
+  }catch(err){
+    log("click wrap failed", err);
+  }
+
+  // ------------------------
+  // 2) Universal processor (image/pdf) with "process once" guard
+  // ------------------------
+  function fileKey(f){
+    try{
+      return [f.name||"", f.size||0, f.lastModified||0, f.type||""].join("::");
+    }catch(_){ return String(Date.now()); }
+  }
+  function isPdfFile(f){
+    const name = String(f?.name||"").toLowerCase();
+    return f?.type === "application/pdf" || name.endsWith(".pdf");
+  }
+  function isImageFile(f){
+    const t = String(f?.type||"");
+    return t.startsWith("image/");
+  }
+
+  // pdf.js helpers (only if we must convert here)
+  function loadScriptOnce(src){
+    window.__sspScripts = window.__sspScripts || {};
+    if(window.__sspScripts[src]) return window.__sspScripts[src];
+    window.__sspScripts[src] = new Promise((res, rej)=>{
+      const s=document.createElement("script");
+      s.src=src; s.async=true;
+      s.onload=()=>res(true);
+      s.onerror=()=>rej(new Error("Load failed: "+src));
+      document.head.appendChild(s);
+    });
+    return window.__sspScripts[src];
+  }
+  async function ensurePdfJsReady(){
+    if(window.pdfjsLib && window.__sspPdfReady) return true;
+    if(!window.pdfjsLib){
+      await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+    }
+    if(!window.pdfjsLib) throw new Error("PDF.js missing");
+    try{
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    }catch(_){}
+    window.__sspPdfReady = true;
+    return true;
+  }
+  async function pdfFirstPageToImage(pdfFile){
+    // Prefer existing robust converter if present
+    if(typeof window.__sspPdfFirstPageToPngFile === "function"){
+      return await window.__sspPdfFirstPageToPngFile(pdfFile);
+    }
+    if(typeof window.__sspPdfFirstPageToImageFile === "function"){
+      return await window.__sspPdfFirstPageToImageFile(pdfFile);
+    }
+    await ensurePdfJsReady();
+    const buf = await pdfFile.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.6 });
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+    canvas.width  = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const blob = await new Promise((res)=>canvas.toBlob(res, "image/jpeg", 0.92));
+    if(!blob) throw new Error("PDF render failed");
+    const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
+    return new File([blob], name, { type:"image/jpeg" });
+  }
+
+  async function showPreview(file){
+    try{
+      const url = URL.createObjectURL(file);
+      const im = document.querySelector("#photoPrevImg") || document.querySelector("#receiptPreview");
+      const wrap = document.querySelector("#photoPrev");
+      if(im){
+        im.src = url;
+        if(wrap) wrap.style.display="block";
+        else im.style.display="";
+      }
+    }catch(_){}
+  }
+
+  async function runPipeline(file, kind){
+    window.__sspReceipt = window.__sspReceipt || {};
+    window.__sspReceipt.file = file;
+    window.__sspReceipt.getLastFile = ()=>file;
+    if(kind === "pdf") window.__sspPdfLastImageFile = file;
+
+    await showPreview(file);
+
+    // prefer unified handler
+    if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+      await window.__sspReceipt.handle(file, kind);
+      return true;
+    }
+    if(typeof window.handleReceiptOCR === "function"){
+      await window.handleReceiptOCR(file);
+      return true;
+    }
+    return false;
+  }
+
+  window.__sspProcessedFiles = window.__sspProcessedFiles || {};
+  let processing = false;
+
+  async function processSelectedFile(f){
+    if(!f) return;
+    const key = fileKey(f);
+    if(window.__sspProcessedFiles[key]) return;
+    if(processing) return; // avoid concurrent OCR fights
+    processing = true;
+    window.__sspProcessedFiles[key] = true;
+
+    try{
+      if(isPdfFile(f)){
+        toastSafe("Importo PDF…");
+        const img = await pdfFirstPageToImage(f);
+        await runPipeline(img, "pdf");
+      }else if(isImageFile(f)){
+        toastSafe("Carico foto…");
+        await runPipeline(f, "photo");
+      }
+    }catch(err){
+      log("process error", err);
+      // allow retry if failed
+      try{ delete window.__sspProcessedFiles[key]; }catch(_){}
+    }finally{
+      processing = false;
+    }
+  }
+
+  function scanAndProcessAllInputs(){
+    try{
+      const inputs = document.querySelectorAll("input[type='file']");
+      inputs.forEach(inp=>{
+        try{
+          const files = inp.files;
+          if(!files || files.length !== 1) return; // skip multi (handled elsewhere)
+          const f = files[0];
+          processSelectedFile(f);
+          // reset so picking same file works next time (doesn't affect other flows much)
+          setTimeout(()=>{ try{ inp.value=""; }catch(_){ } }, 80);
+        }catch(_){}
+      });
+    }catch(_){}
+  }
+
+  // Change listener: mirror-process on first selection
+  document.addEventListener("change", (e)=>{
+    const t = e.target;
+    if(!t || t.tagName !== "INPUT" || t.type !== "file") return;
+    try{
+      const files = t.files;
+      if(!files || files.length !== 1) return; // skip multi
+      processSelectedFile(files[0]);
+      // reset after a tick
+      setTimeout(()=>{ try{ t.value=""; }catch(_){ } }, 80);
+    }catch(_){}
+  }, true);
+
+  // Fallback: if change is missed, process on return from picker
+  window.addEventListener("focus", ()=>{ scanAndProcessAllInputs(); }, true);
+  document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) scanAndProcessAllInputs(); }, true);
+
+  log("Ready ✅");
+})();
