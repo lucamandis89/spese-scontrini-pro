@@ -4378,3 +4378,98 @@ https://github.com/lucamandis89/spese-scontrini-pro/blob/c7a90222029a291ba093abb
 
   log("Ready ✅");
 })();
+/* ================================
+   CHROME PICKER SINGLE-OPEN v6 (CHIRURGICO, APPEND-ONLY)
+   Problem: In Chrome the gallery/file picker opens multiple times.
+   Cause: multiple stacked event listeners on the same buttons (from old patches / legacy code).
+   Surgical fix (does NOT touch other features/data):
+   - On load, REPLACE the two buttons with clean CLONES (this removes ALL prior listeners).
+   - Re-attach ONE safe handler per button:
+       #btnReceiptGallery -> open the existing image input (auto-detected)
+       #btnReceiptPdf     -> open the existing pdf input (auto-detected)
+   - Global 1200ms throttle to prevent double-open even if Android fires extra events.
+   - Does not affect multi-import buttons (e.g. Importa PDF (multi)).
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_CHROME_PICKER_V6) return;
+  window.__SSP_CHROME_PICKER_V6 = true;
+
+  const log = (...a)=>{ try{ console.log("[PICKER v6]", ...a); }catch(_){} };
+
+  // ---------- helpers
+  function throttle(kind, ms){
+    const now = Date.now();
+    const key = "__sspPickerLast_" + kind;
+    const last = window[key] || 0;
+    if(now - last < ms) return false;
+    window[key] = now;
+    return true;
+  }
+
+  function findImageInput(){
+    // prefer your stable inputs if present
+    return (
+      document.getElementById("inPhoto__stable_v1") ||
+      document.getElementById("inPhoto__oneTap_v2") ||
+      document.querySelector("input[type='file'][accept*='image']:not([multiple])") ||
+      document.querySelector("input[type='file'][accept^='image']")
+    );
+  }
+
+  function findPdfInput(){
+    return (
+      document.getElementById("inPdf__stable_v1") ||
+      document.getElementById("inPdf__multi_v2") || // if present, still ok for single
+      document.querySelector("input[type='file'][accept*='pdf']:not([multiple])") ||
+      document.querySelector("input[type='file'][accept*='application/pdf']")
+    );
+  }
+
+  function openInput(inp, kind){
+    if(!inp) return;
+    if(!throttle(kind, 1200)) return;
+    try{ inp.value = ""; }catch(_){}
+    try{ inp.click(); }catch(_){}
+  }
+
+  // ---------- core: clone & rebind
+  function cloneReplaceAndBind(btnId, kind){
+    const btn = document.getElementById(btnId);
+    if(!btn) return false;
+
+    // do NOT touch multi buttons or other controls
+    const parent = btn.parentNode;
+    if(!parent) return false;
+
+    const clone = btn.cloneNode(true); // same markup, no listeners
+    parent.replaceChild(clone, btn);
+
+    // block default click (some handlers use click)
+    clone.addEventListener("click", (e)=>{
+      try{ e.preventDefault(); }catch(_){}
+      try{ e.stopPropagation(); }catch(_){}
+    }, true);
+
+    // open picker on pointerup only
+    clone.addEventListener("pointerup", (e)=>{
+      try{ e.preventDefault(); }catch(_){}
+      try{ e.stopPropagation(); }catch(_){}
+      const inp = (kind === "photo") ? findImageInput() : findPdfInput();
+      openInput(inp, kind);
+    }, { capture:true });
+
+    return true;
+  }
+
+  function apply(){
+    const ok1 = cloneReplaceAndBind("btnReceiptGallery", "photo");
+    const ok2 = cloneReplaceAndBind("btnReceiptPdf", "pdf");
+    if(ok1 || ok2) log("bound:", { gallery: ok1, pdf: ok2 });
+  }
+
+  document.addEventListener("DOMContentLoaded", apply);
+  // also retry after modals render
+  setTimeout(apply, 800);
+  setTimeout(apply, 2000);
+})();
