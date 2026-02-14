@@ -3640,3 +3640,122 @@ https://github.com/lucamandis89/spese-scontrini-pro/blob/c7a90222029a291ba093abb
 
   log("Ready ✅");
 })();
+/* ================================
+   FOTO IMPORT ONE-TAP FIX v2 (CHIRURGICO, APPEND-ONLY)
+   Fix for "opens gallery 3 times" after v1:
+   - Many listeners (click + pointerup) can both trigger. We:
+     * Open picker ONLY on pointerup (once)
+     * On click: we ONLY block other handlers, never open
+   - Global time lock (900ms) prevents multiple opens from stacked handlers.
+   - Still resets value before/after and feeds existing OCR pipeline.
+   - Does NOT touch other features.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_PHOTO_ONE_TAP_V2) return;
+  window.__SSP_PHOTO_ONE_TAP_V2 = true;
+
+  const log = (...a)=>{ try{ console.log("[PHOTO 1TAP v2]", ...a); }catch(_){} };
+
+  function getInput(){
+    let el = document.getElementById("inPhoto__oneTap_v2");
+    if(!el){
+      el = document.createElement("input");
+      el.type = "file";
+      el.accept = "image/*";
+      el.id = "inPhoto__oneTap_v2";
+      el.style.display = "none";
+      document.body.appendChild(el);
+    }
+    el.multiple = false;
+    return el;
+  }
+
+  const input = getInput();
+  let busy = false;
+
+  async function handleFile(file){
+    if(!file || busy) return;
+    busy = true;
+    try{
+      window.__sspReceipt = window.__sspReceipt || {};
+      window.__sspReceipt.file = file;
+      window.__sspReceipt.getLastFile = ()=>file;
+
+      // preview best-effort
+      try{
+        const url = URL.createObjectURL(file);
+        const im = document.querySelector("#photoPrevImg") || document.querySelector("#receiptPreview");
+        const wrap = document.querySelector("#photoPrev");
+        if(im){
+          im.src = url;
+          if(wrap) wrap.style.display = "block";
+          else im.style.display = "";
+        }
+      }catch(_){}
+
+      // feed OCR/autosave pipeline
+      try{
+        if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+          await window.__sspReceipt.handle(file, "photo");
+          return;
+        }
+      }catch(_){}
+      try{
+        if(typeof window.handleReceiptOCR === "function"){
+          await window.handleReceiptOCR(file);
+          return;
+        }
+      }catch(_){}
+    } finally {
+      busy = false;
+    }
+  }
+
+  input.addEventListener("change", async ()=>{
+    const f = input.files && input.files[0];
+    await handleFile(f);
+    try{ input.value = ""; }catch(_){}
+  });
+
+  // Global lock to prevent multiple openings from stacked handlers
+  function canOpenNow(){
+    const now = Date.now();
+    const last = window.__sspGalleryLastOpen || 0;
+    if(now - last < 900) return false;
+    window.__sspGalleryLastOpen = now;
+    return true;
+  }
+
+  function isGalleryBtn(target){
+    return !!(target && target.closest && target.closest("#btnReceiptGallery"));
+  }
+
+  // CLICK: block others, NEVER open (prevents double/triple opens)
+  document.addEventListener("click", (e)=>{
+    if(!isGalleryBtn(e.target)) return;
+    try{ e.preventDefault(); }catch(_){}
+    try{ e.stopPropagation(); }catch(_){}
+    try{ e.stopImmediatePropagation(); }catch(_){}
+    // do not open here
+  }, true);
+
+  // POINTERUP: open once
+  document.addEventListener("pointerup", (e)=>{
+    if(!isGalleryBtn(e.target)) return;
+
+    // block others
+    try{ e.preventDefault(); }catch(_){}
+    try{ e.stopPropagation(); }catch(_){}
+    try{ e.stopImmediatePropagation(); }catch(_){}
+
+    if(!canOpenNow()){
+      log("blocked duplicate open");
+      return;
+    }
+    try{ input.value = ""; }catch(_){}
+    try{ input.click(); }catch(_){}
+  }, true);
+
+  log("Ready ✅");
+})();
