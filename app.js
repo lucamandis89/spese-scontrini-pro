@@ -3843,3 +3843,199 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   setTimeout(hardenFab, 600);
   setTimeout(hardenFab, 2000);
 })();
+/* ================================
+   HOTFIX v1: (A) SIMPLE BUTTON INPUT + (B) OCR IMPORTO "VALE EUR" PRIORITY
+   CHIRURGICO / APPEND-ONLY: non rimuove funzioni esistenti.
+   A) Bottone "Semplice ON/OFF" non prende input:
+      - aggiunge un listener globale in capture che intercetta tap dentro il rettangolo del bottone
+      - forza pointer-events e sposta leggermente il bottone sopra la navbar
+   B) OCR: su scontrini/buoni CRAI prende 30€ (spesa minima) invece di 5€ (VALE EUR 5.00)
+      - aggiunge una funzione di "post-fix" dell'importo: se trova "VALE EUR" usa quello come importo
+      - fallback: ignora "SPESA MINIMA" e simili
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_HOTFIX_SIMPLEBTN_OCR_V1) return;
+  window.__SSP_HOTFIX_SIMPLEBTN_OCR_V1 = true;
+
+  /* ----------------
+     A) SIMPLE BUTTON INPUT
+     ---------------- */
+  const LS_KEY="__sspSimpleMode";
+  const getOn=()=>{ try{return localStorage.getItem(LS_KEY)==="1";}catch(_){return false;} };
+  const setOn=(v)=>{
+    try{ localStorage.setItem(LS_KEY, v?"1":"0"); }catch(_){}
+    try{ document.body.classList.toggle("ssp-simple", v); }catch(_){}
+    try{
+      const fab=document.getElementById("sspSimpleFabV2");
+      if(fab) fab.textContent=v?"Semplice ON":"Semplice OFF";
+      const chk=document.getElementById("sspSimpleChkV2");
+      if(chk) chk.checked=v;
+    }catch(_){}
+    try{ if(typeof toast==="function") toast(v?"Modalità semplice: ON":"Modalità semplice: OFF"); }catch(_){}
+  };
+
+  function hardenFab(){
+    const fab = document.getElementById("sspSimpleFabV2");
+    if(!fab) return;
+
+    // keep above nav and tappable
+    fab.style.pointerEvents = "auto";
+    fab.style.touchAction = "manipulation";
+    fab.style.userSelect = "none";
+    fab.style.webkitUserSelect = "none";
+    fab.style.zIndex = "2147483647";
+    fab.style.position = "fixed";
+    // lift it more to avoid bottom bars overlays
+    try{
+      const nav = document.querySelector("nav") || document.querySelector(".bottom-nav") || document.querySelector(".tabbar");
+      const navH = nav ? nav.getBoundingClientRect().height : 70;
+      fab.style.bottom = (navH + 18) + "px";
+      fab.style.right = "12px";
+    }catch(_){}
+
+    // mark for global hit-test
+    fab.dataset.sspHit="1";
+  }
+
+  // Global capture hit-test (works even if an overlay steals the tap)
+  function globalTapCapture(ev){
+    try{
+      const fab = document.getElementById("sspSimpleFabV2");
+      if(!fab) return;
+      const r = fab.getBoundingClientRect();
+      const x = ("changedTouches" in ev && ev.changedTouches && ev.changedTouches[0]) ? ev.changedTouches[0].clientX : ev.clientX;
+      const y = ("changedTouches" in ev && ev.changedTouches && ev.changedTouches[0]) ? ev.changedTouches[0].clientY : ev.clientY;
+      if(x==null || y==null) return;
+
+      const inside = x>=r.left && x<=r.right && y>=r.top && y<=r.bottom;
+      if(!inside) return;
+
+      // If user tapped in button area, toggle no matter what
+      ev.preventDefault?.();
+      ev.stopPropagation?.();
+      ev.stopImmediatePropagation?.();
+      setOn(!getOn());
+    }catch(_){}
+  }
+
+  document.addEventListener("pointerup", globalTapCapture, true);
+  document.addEventListener("touchend", globalTapCapture, {capture:true, passive:false});
+  document.addEventListener("click", globalTapCapture, true);
+
+  document.addEventListener("DOMContentLoaded", ()=>setTimeout(hardenFab, 50));
+  setTimeout(hardenFab, 800);
+  setTimeout(hardenFab, 2000);
+
+  /* ----------------
+     B) OCR IMPORTO FIX (VALE EUR priority)
+     ---------------- */
+  function parseEuroNumber(s){
+    if(!s) return null;
+    let t = String(s).trim();
+    // normalize: remove spaces and currency
+    t = t.replace(/\s/g,"").replace(/[€]/g,"");
+    // accept 5,00 or 5.00 or 5
+    // If both . and , exist, assume . thousands and , decimals -> remove dots
+    if(t.includes(",") && t.includes(".")) t = t.replace(/\./g,"");
+    // convert comma to dot
+    t = t.replace(",", ".");
+    const n = Number(t);
+    if(!Number.isFinite(n)) return null;
+    return n;
+  }
+
+  function findValeEur(text){
+    const T = String(text||"");
+    // typical lines: "VALE EUR 5.00" or "VALE EUR 5,00"
+    const m = T.match(/VALE\s*EUR\s*([0-9]{1,6}(?:[.,][0-9]{1,2})?)/i);
+    if(m){
+      const n = parseEuroNumber(m[1]);
+      if(n!=null && n>0) return n;
+    }
+    return null;
+  }
+
+  function looksLikeSpesaMinimaContext(text, amountStrIndex){
+    // avoid picking amounts near "SPESA MINIMA"
+    const T = String(text||"").toUpperCase();
+    const windowStart = Math.max(0, amountStrIndex-40);
+    const windowEnd = Math.min(T.length, amountStrIndex+40);
+    const around = T.slice(windowStart, windowEnd);
+    return around.includes("SPESA MINIMA") || around.includes("MINIMA DI") || around.includes("MINIMO");
+  }
+
+  function bestAmountFromText(text){
+    const T = String(text||"");
+    const vale = findValeEur(T);
+    if(vale!=null) return vale;
+
+    // Otherwise pick first "TOTAL" like patterns, and ignore spesa minima
+    // Common Italian: "TOTALE", "IMPORTO", "EURO", "TOT"
+    const candidates = [];
+    const re = /([0-9]{1,6}(?:[.,][0-9]{1,2})?)/g;
+    let m;
+    while((m = re.exec(T)) !== null){
+      const idx = m.index;
+      if(looksLikeSpesaMinimaContext(T, idx)) continue;
+      const n = parseEuroNumber(m[1]);
+      if(n==null || n<=0) continue;
+      // heuristic: prefer reasonable receipt values <= 2000
+      if(n>20000) continue;
+      candidates.push(n);
+    }
+    if(!candidates.length) return null;
+
+    // Choose the smallest >0 if there is a voucher-like receipt? No.
+    // Choose the most frequent or last? We'll choose the last numeric that isn't spesa minima
+    return candidates[candidates.length-1];
+  }
+
+  // Hook point: if app exposes last OCR text + amount setter, fix it
+  // We do this as a "post-processing" wrapper of existing OCR result handler, without touching internals.
+  function installOcrPostFix(){
+    if(window.__sspOcrPostFixInstalled) return;
+    window.__sspOcrPostFixInstalled = true;
+
+    // Wrap a known function if present
+    const fnNames = [
+      "applyOcrToForm",
+      "onOcrResult",
+      "handleOcrResult",
+      "fillFromOcrText"
+    ];
+
+    for(const name of fnNames){
+      const orig = window[name];
+      if(typeof orig === "function" && !orig.__sspWrapped){
+        window[name] = function(...args){
+          const res = orig.apply(this, args);
+          try{
+            // Try locate OCR text from args
+            const textArg = args.find(a => typeof a === "string" && a.length>20) || "";
+            const fixed = bestAmountFromText(textArg);
+            if(fixed!=null){
+              // Try set amount input
+              const inp = document.querySelector("#amount, #importo, input[name='amount'], input[name='importo'], input[data-field='amount']");
+              if(inp){
+                // format with comma
+                const v = fixed.toFixed(2).replace(".", ",");
+                inp.value = v;
+                inp.dispatchEvent(new Event("input", {bubbles:true}));
+                inp.dispatchEvent(new Event("change", {bubbles:true}));
+              }
+            }
+          }catch(_){}
+          return res;
+        };
+        window[name].__sspWrapped = true;
+      }
+    }
+
+    // Also, if app stores last OCR text somewhere, expose helper
+    window.__sspBestAmountFromText = bestAmountFromText;
+  }
+
+  document.addEventListener("DOMContentLoaded", ()=>setTimeout(installOcrPostFix, 200));
+  setTimeout(installOcrPostFix, 1200);
+})();
