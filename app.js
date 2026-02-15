@@ -55,13 +55,11 @@ document.addEventListener('click', (e)=>{
     freeLimitPdfPerMonth: 3,
     photoMaxSide: 1600,
     photoJpegQuality: 0.78,
-    // TEST BUILD: auto-enable PRO for device/app testing. Set to false for Play Store release.
     devAutoPro: true,
-    // Optional URL param to force PRO without touching code: ?devpro=1
     devParamName: "devpro"
   };
 
-  // ===================== FUNZIONI DI ESPORTAZIONE/CONDIVISIONE =====================
+  // ===================== FUNZIONI DI ESPORTAZIONE =====================
   function exportQif() {
     const month = $("#rMonth")?.value || monthNow();
     const list = all.filter(x => (x.month || yyyymm(x.date)) === month && x.type !== "recurring_template");
@@ -69,9 +67,9 @@ document.addEventListener('click', (e)=>{
     list.sort((a,b) => (a.date||"").localeCompare(b.date||""));
     let qif = "!Type:Bank\n";
     list.forEach(x => {
-      const date = x.date.replace(/-/g, '/'); // QIF spesso usa / come separatore
+      const date = x.date.replace(/-/g, '/');
       qif += `D${date}\n`;
-      qif += `T-${x.amount.toFixed(2)}\n`; // negativo per uscita
+      qif += `T-${x.amount.toFixed(2)}\n`;
       if(x.note) qif += `M${x.note}\n`;
       qif += `P${x.category}\n`;
       qif += "^\n";
@@ -170,16 +168,12 @@ NEWFILEUID:NONE
   async function shareCurrentReport() {
     const mode = $("#rMode")?.value || "month";
     const month = $("#rMonth")?.value || monthNow();
-    if(!canGeneratePdf()) return; // controllo limiti free
+    if(!canGeneratePdf()) return;
     let list = all.filter(x => (x.month || yyyymm(x.date)) === month && x.type !== "recurring_template");
     if(mode === "caf") list = list.filter(x => isCaf(x.category));
     if(list.length === 0) { toast("Nessuna spesa per il report"); return; }
     list.sort((a,b) => (a.date||"").localeCompare(b.date||""));
 
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit:"pt", format:"a4" });
-    // ... (stessa logica di generazione PDF di generatePdf, ma senza salvare)
-    // Per brevità, riutilizziamo la funzione buildPdfBlobFromList già esistente
     const title = mode === "caf" ? "Report CAF/ISEE" : "Report Mensile";
     const rangeLabel = `Mese: ${month}`;
     const pdfBlob = await buildPdfBlobFromList(mode, title, rangeLabel, list);
@@ -190,13 +184,9 @@ NEWFILEUID:NONE
 
     try {
       if(navigator.share && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          title: 'Report Spese',
-          files: [file]
-        });
+        await navigator.share({ title: 'Report Spese', files: [file] });
         toast("Report condiviso ✅");
       } else {
-        // Fallback: download
         const url = URL.createObjectURL(pdfBlob);
         const a = document.createElement('a');
         a.href = url;
@@ -221,15 +211,6 @@ NEWFILEUID:NONE
     toast("Grafico esportato ✅");
   }
 
-  // ===================== STUB PER FUNZIONI MANCANTI (ora implementate) =====================
-  // (Le funzioni sopra sostituiscono gli stub, quindi possiamo rimuovere le dichiarazioni precedenti o sovrascriverle)
-  // Per evitare conflitti, commentiamo le vecchie definizioni.
-  // function exportQif() { toast("Esportazione QIF non ancora implementata"); }
-  // function exportOfx() { toast("Esportazione OFX non ancora implementata"); }
-  // function shareCurrentReport() { toast("Condivisione report non ancora implementata"); }
-  // function exportChartImage() { toast("Esportazione grafico non ancora implementata"); }
-
-  // Manteniamo la funzione calcTax invariata
   function calcTax() {
     const revenue = parseFloat($("#taxRevenue")?.value || 0);
     const coeff = parseFloat($("#taxCoeff")?.value || 78) / 100;
@@ -251,19 +232,12 @@ NEWFILEUID:NONE
     "Farmacia / Mediche", "Scuola", "Bambini", "Assicurazioni", "Casa", "Bollette"
   ]);
 
-  // =====================
-  //  BUILD / CACHE BUST (prevents "old version" tap-block issues)
-  // =====================
-  // IMPORTANT: bump this on every release so the app auto-clears stale caches
-  // (prevents "tap does nothing" / old JS issues in PWA/APK wrappers)
   const BUILD_ID = "v37.3_20260214120000";
   (async () => {
     try{
       const prev = localStorage.getItem("__ssp_build_id") || "";
       if(prev !== BUILD_ID){
         localStorage.setItem("__ssp_build_id", BUILD_ID);
-
-        // Kill old service workers + caches that may keep serving stale JS/CSS
         if("serviceWorker" in navigator){
           const regs = await navigator.serviceWorker.getRegistrations();
           await Promise.all(regs.map(r => r.unregister()));
@@ -272,8 +246,6 @@ NEWFILEUID:NONE
           const keys = await caches.keys();
           await Promise.all(keys.map(k => caches.delete(k)));
         }
-
-        // reload once
         if(!sessionStorage.getItem("__ssp_reloaded_once")){
           sessionStorage.setItem("__ssp_reloaded_once","1");
           location.reload();
@@ -283,129 +255,115 @@ NEWFILEUID:NONE
   })();
 
   const $ = (s) => document.querySelector(s);
-  // Safe event binder (anti-bug): if element is missing, it won't crash the app
   const on = (sel, ev, fn, opts) => {
     try{
       const el = $(sel);
       if(el) el.addEventListener(ev, fn, opts);
-    }catch(e){ /* never block */ }
+    }catch(e){}
   };
-// =====================
-//  PRO (Free + Pro) framework
-//  NOTE: Payment via Google Play Billing will be wired in the Android wrapper (TWA).
-//  This app keeps working offline; PRO status is stored locally.
-// =====================
-const PRO_SKU = "scontrini_facili_pro_one_time";
-const PRO_PRICE_LABEL = "4,99€";
-function isPro(){
-  // Single source of truth: settings.isPro (persisted under APP.settingsKey).
-  // Back-compat: also read legacy localStorage("isPro") if settings isn't ready yet.
-  try{
-    if(typeof settings !== 'undefined' && settings && typeof settings.isPro !== 'undefined'){
-      return !!settings.isPro;
-    }
-  }catch(_){ /* ignore */ }
-  return localStorage.getItem("isPro") === "true";
-}
-function setPro(v){
-  const on = !!v;
-  // Persist both ways for maximum compatibility.
-  localStorage.setItem("isPro", on ? "true" : "false");
-  try{
-    if(typeof settings !== 'undefined' && settings){
-      settings.isPro = on;
-      if(typeof saveSettings === 'function') saveSettings();
-      if(typeof setProUI === 'function') setProUI();
-    }
-  }catch(_){ /* ignore */ }
-  renderProBadges();
-}
-function renderProBadges(){
-  const el = document.querySelector("#proStatus");
-  if(el) el.textContent = isPro() ? "PRO ✅" : "FREE";
-  document.querySelectorAll("[data-pro-only]").forEach(n=>{
-    n.classList.toggle("locked", !isPro());
-  });
-}
-function requirePro(reason){
-  if(isPro()) return true;
-  // show upgrade modal if present, else toast
-  const m = document.querySelector("#modalPro");
-  if(m){
-    const r = document.querySelector("#proReason");
-    if(r) r.textContent = reason || "Funzione Premium";
-    showModal("#modalPro");
-  } else {
-    try{ toast("Funzione Premium: passa a PRO", 1200); }catch(e){}
+
+  // ===================== PRO =====================
+  function isPro(){
+    try{
+      if(typeof settings !== 'undefined' && settings && typeof settings.isPro !== 'undefined'){
+        return !!settings.isPro;
+      }
+    }catch(_){}
+    return localStorage.getItem("isPro") === "true";
   }
-  return false;
-}
+  function setPro(v){
+    const on = !!v;
+    localStorage.setItem("isPro", on ? "true" : "false");
+    try{
+      if(typeof settings !== 'undefined' && settings){
+        settings.isPro = on;
+        if(typeof saveSettings === 'function') saveSettings();
+        if(typeof setProUI === 'function') setProUI();
+      }
+    }catch(_){}
+    renderProBadges();
+  }
+  function renderProBadges(){
+    const el = document.querySelector("#proStatus");
+    if(el) el.textContent = isPro() ? "PRO ✅" : "FREE";
+    document.querySelectorAll("[data-pro-only]").forEach(n=>{
+      n.classList.toggle("locked", !isPro());
+    });
+  }
+  function requirePro(reason){
+    if(isPro()) return true;
+    const m = document.querySelector("#modalPro");
+    if(m){
+      const r = document.querySelector("#proReason");
+      if(r) r.textContent = reason || "Funzione Premium";
+      showModal("#modalPro");
+    } else {
+      try{ toast("Funzione Premium: passa a PRO", 1200); }catch(e){}
+    }
+    return false;
+  }
 
-function normalizeText(text){
-  // Preserve line breaks for display; trim each line.
-  return String(text ?? '')
-    .replace(/\r\n/g,'\n')
-    .replace(/\r/g,'\n')
-    .split('\n')
-    .map(l => l.replace(/\s+$/,'').trim())
-    .join('\n')
-    .trim();
-}
-function normalizeForRegex(text){
-  // Flatten for regex extraction (date/total)
-  return normalizeText(text).replace(/\n+/g,' ').replace(/\s+/g,' ').trim();
-}
+  function normalizeText(text){
+    return String(text ?? '')
+      .replace(/\r\n/g,'\n')
+      .replace(/\r/g,'\n')
+      .split('\n')
+      .map(l => l.replace(/\s+$/,'').trim())
+      .join('\n')
+      .trim();
+  }
+  function normalizeForRegex(text){
+    return normalizeText(text).replace(/\n+/g,' ').replace(/\s+/g,' ').trim();
+  }
 
-function parseTags(s){
-  const raw = String(s||"").trim();
-  if(!raw) return [];
-  const tags = raw.split(/[,;]+/g).map(t=>t.trim()).filter(Boolean).slice(0,20);
-  // keep a global tag list for suggestions
-  try{
-    const set = new Set([...(settings.tagsList||[]), ...tags]);
-    settings.tagsList = Array.from(set).slice(0,200);
-  }catch(_){ }
-  return tags;
-}
+  function parseTags(s){
+    const raw = String(s||"").trim();
+    if(!raw) return [];
+    const tags = raw.split(/[,;]+/g).map(t=>t.trim()).filter(Boolean).slice(0,20);
+    try{
+      const set = new Set([...(settings.tagsList||[]), ...tags]);
+      settings.tagsList = Array.from(set).slice(0,200);
+    }catch(_){}
+    return tags;
+  }
 
-function setOcrResult(rawText){
-  const t = String(rawText ?? "");
-  const panel = document.querySelector('#ocrResultPanel') || document.querySelector('.ocr-result') || null;
-  if(panel) panel.style.display = '';
-  const el = document.querySelector('#ocrResultText') || document.querySelector('#ocrText') || document.querySelector('#ocrOut') || document.querySelector('#ocrOutput') || document.querySelector('#ocrResult');
-  if(!el) return;
-  if('value' in el) el.value = t;
-  else el.textContent = t;
-}
+  function setOcrResult(rawText){
+    const t = String(rawText ?? "");
+    const panel = document.querySelector('#ocrResultPanel') || document.querySelector('.ocr-result') || null;
+    if(panel) panel.style.display = '';
+    const el = document.querySelector('#ocrResultText') || document.querySelector('#ocrText') || document.querySelector('#ocrOut') || document.querySelector('#ocrOutput') || document.querySelector('#ocrResult');
+    if(!el) return;
+    if('value' in el) el.value = t;
+    else el.textContent = t;
+  }
 
-function hideAllModals(){
-  document.querySelectorAll('.modal').forEach(m=>{
+  function hideAllModals(){
+    document.querySelectorAll('.modal').forEach(m=>{
+      m.classList.remove('show');
+      m.setAttribute('aria-hidden','true');
+    });
+    document.body.classList.remove('modal-open');
+  }
+
+  function showModal(id){
+    hideAllModals();
+    const m = typeof id === 'string' ? document.querySelector(id) : id;
+    if(!m) return;
+    m.classList.add('show');
+    m.setAttribute('aria-hidden','false');
+    document.body.classList.add('modal-open');
+  }
+
+  function hideModal(id){
+    const m = typeof id === 'string' ? document.querySelector(id) : id;
+    if(!m) return;
     m.classList.remove('show');
     m.setAttribute('aria-hidden','true');
-  });
-  document.body.classList.remove('modal-open');
-}
+    const anyOpen = !!document.querySelector('.modal.show');
+    if(!anyOpen) document.body.classList.remove('modal-open');
+  }
 
-function showModal(id){
-  hideAllModals();
-  const m = typeof id === 'string' ? document.querySelector(id) : id;
-  if(!m) return;
-  m.classList.add('show');
-  m.setAttribute('aria-hidden','false');
-  document.body.classList.add('modal-open');
-}
-
-function hideModal(id){
-  const m = typeof id === 'string' ? document.querySelector(id) : id;
-  if(!m) return;
-  m.classList.remove('show');
-  m.setAttribute('aria-hidden','true');
-  // if none open, unlock body
-  const anyOpen = !!document.querySelector('.modal.show');
-  if(!anyOpen) document.body.classList.remove('modal-open');
-}
-
-function toast(msg, ms=1600){
+  function toast(msg, ms=1600){
     const t = $("#toast");
     if(!t) return;
     t.textContent = msg;
@@ -450,24 +408,19 @@ function toast(msg, ms=1600){
     return `${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
   }
 
-  // Chrome-safe month normalization/extraction from strings (accepts "2026-2", ISO, dd/mm/yyyy, etc.)
   function monthNorm(s){
     try {
       s = String(s||"").trim();
       if(!s) return "";
-      
       if(/^\d{4}-\d{1,2}$/.test(s)) {
         const [y,m] = s.split('-');
         return `${y}-${pad2(m)}`;
       }
-      
       if(/^\d{4}-\d{2}-\d{2}/.test(s)) {
         return s.substring(0,7);
       }
-      
       const m = s.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})/);
       if(m) return `${m[3]}-${pad2(m[2])}`;
-      
       const d = new Date(s);
       return isNaN(d) ? "" : `${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
     } catch(e) {
@@ -490,22 +443,15 @@ function toast(msg, ms=1600){
   let settings = loadSettings();
   settings.isPro = !!settings.isPro;
   settings.pdfCountByMonth = settings.pdfCountByMonth || {};
-  settings.viewMode = settings.viewMode || "list"; // list | timeline
-  settings.budgetByMonth = settings.budgetByMonth || {}; // { "YYYY-MM": cents }
-  // Custom tags (user-defined)
+  settings.viewMode = settings.viewMode || "list";
+  settings.budgetByMonth = settings.budgetByMonth || {};
   settings.tagsList = Array.isArray(settings.tagsList) ? settings.tagsList : [];
-  // Currency
   settings.baseCurrency = settings.baseCurrency || "EUR";
-  // Save originals (can increase storage usage)
   settings.saveOriginals = (settings.saveOriginals !== false);
-  // Fast mode default
   settings.fastModeDefault = !!settings.fastModeDefault;
-  // Auto geo capture when adding
   settings.autoGeo = !!settings.autoGeo;
   saveSettings();
-  // =====================
-  //  DEV / TEST PRO AUTO-ENABLE
-  // =====================
+
   (function(){
     try{
       const p = new URLSearchParams(location.search || "");
@@ -513,7 +459,6 @@ function toast(msg, ms=1600){
       const hasParam = p.get(APP.devParamName) === "1" || p.get("pro") === "1";
       if(!disable && (APP.devAutoPro || hasParam)){
         if(localStorage.getItem("ssp_dev_autopro_done") !== "1"){
-          // First run in this build: enable PRO and reset PDF counter for the current month.
           setPro(true);
           const ym = new Date().toISOString().slice(0,7);
           settings.pdfCountByMonth = settings.pdfCountByMonth || {};
@@ -521,17 +466,14 @@ function toast(msg, ms=1600){
           localStorage.setItem("ssp_dev_autopro_done","1");
           saveSettings();
         } else {
-          // Keep PRO on for tests
           setPro(true);
         }
       }
-    }catch(_){ /* ignore */ }
+    }catch(_){}
   })();
-
 
   function saveSettings(){
     localStorage.setItem(APP.settingsKey, JSON.stringify(settings));
-    // Ricarica le impostazioni per assicurarsi che siano sincronizzate
     try {
       Object.assign(settings, JSON.parse(localStorage.getItem(APP.settingsKey)||"{}"));
     } catch(_) {}
@@ -542,686 +484,664 @@ function toast(msg, ms=1600){
     const fh = $("#freeHint");
     if(fh) fh.style.display = settings.isPro ? "none" : "block";
   }
-// ---------------- NAV ----------------
-function showPage(name){
-  // Modalità semplice: blocca Archivio/Report (resta Home + Camera)
-  const __simpleOn = (()=>{ try{return localStorage.getItem("__sspSimpleMode")==="1";}catch(_){return false;} })();
-  if(__simpleOn && (name==="archive" || name==="report")){
-    try{ if(typeof toast==="function") toast("Modalità semplice: disponibili solo Home e Foto 📷"); }catch(_){ }
-    name = "home";
-  }
 
-  document.querySelectorAll(".page").forEach(p=>{
-    p.classList.toggle("active", p.getAttribute("data-page")===name);
-  });
-  document.querySelectorAll(".navBtn").forEach(b=>{
-    b.classList.toggle("active", b.getAttribute("data-nav")===name);
-  });
-  const sub=$("#headerSubtitle");
-  if(sub){
-    sub.textContent =
-      name==="home" ? "Offline • PDF • Foto scontrini • Backup" :
-      name==="archive" ? "Archivio • Lista o Timeline" :
-      "Report • PDF + Analisi categorie";
-  }
-  if(name==="archive") renderArchive();
-  if(name==="report") renderAnalysis();
-}
-
-// ---------------- DB ----------------
-let db=null;
-function openDB(){
-  return new Promise((resolve,reject)=>{
-    try {
-      const req=indexedDB.open(APP.dbName, APP.dbVersion);
-      req.onupgradeneeded=()=>{
-        const _db=req.result;
-        let st;
-        if(!_db.objectStoreNames.contains(APP.store)){
-          st=_db.createObjectStore(APP.store,{keyPath:"id"});
-        } else {
-          st = req.transaction.objectStore(APP.store);
-        }
-        // indexes (idempotent)
-        try{ if(!st.indexNames.contains("by_date")) st.createIndex("by_date","date",{unique:false}); }catch(_){}
-        try{ if(!st.indexNames.contains("by_month")) st.createIndex("by_month","month",{unique:false}); }catch(_){}
-        try{ if(!st.indexNames.contains("by_category")) st.createIndex("by_category","category",{unique:false}); }catch(_){}
-        try{ if(!st.indexNames.contains("by_amount")) st.createIndex("by_amount","amount",{unique:false}); }catch(_){}
-        try{ if(!st.indexNames.contains("by_type")) st.createIndex("by_type","type",{unique:false}); }catch(_){}
-      };
-      req.onsuccess=()=>{ db=req.result; resolve(true); };
-      req.onerror=()=>reject(req.error);
-    } catch(e) {
-      console.error("Errore apertura DB:", e);
-      resolve(false);
+  // ---------------- NAV ----------------
+  function showPage(name){
+    const __simpleOn = (()=>{ try{return localStorage.getItem("__sspSimpleMode")==="1";}catch(_){return false;} })();
+    if(__simpleOn && (name==="archive" || name==="report")){
+      try{ if(typeof toast==="function") toast("Modalità semplice: disponibili solo Home e Foto 📷"); }catch(_){}
+      name = "home";
     }
-  });
-}
-function txStore(mode="readonly"){
-  return db.transaction(APP.store, mode).objectStore(APP.store);
-}
-function dbGetAll(){
-  return new Promise((resolve,reject)=>{
-    const req=txStore("readonly").getAll();
-    req.onsuccess=()=>resolve(req.result||[]);
-    req.onerror=()=>reject(req.error);
-  });
-}
-function dbPut(item){
-  return new Promise((resolve,reject)=>{
-    const req=txStore("readwrite").put(item);
-    req.onsuccess=()=>resolve(true);
-    req.onerror=()=>reject(req.error);
-  });
-}
-function dbDelete(id){
-  return new Promise((resolve,reject)=>{
-    const req=txStore("readwrite").delete(id);
-    req.onsuccess=()=>resolve(true);
-    req.onerror=()=>reject(req.error);
-  });
-}
-function dbClear(){
-  return new Promise((resolve,reject)=>{
-    const req=txStore("readwrite").clear();
-    req.onsuccess=()=>resolve(true);
-    req.onerror=()=>reject(req.error);
-  });
-}
 
-// ---------------- PHOTO / SCANNER ----------------
-async function fileToImage(file){
-  const url = URL.createObjectURL(file);
-  return new Promise((resolve,reject)=>{
-    const img=new Image();
-    img.onload=()=>{ 
-      URL.revokeObjectURL(url); 
-      resolve(img); 
-    };
-    img.onerror=()=>{ 
-      URL.revokeObjectURL(url); 
-      reject(new Error("Immagine non valida")); 
-    };
-    img.src=url;
-  });
-}
-
-async function imageToDataUrl(img, rotateDeg=0, crop=null, contrast=1.0, bright=0){
-  const w = img.naturalWidth || img.width;
-  const h = img.naturalHeight || img.height;
-
-  let sx=0, sy=0, sw=w, sh=h;
-  if(crop){
-    sx = Math.max(0, Math.min(w-1, crop.x));
-    sy = Math.max(0, Math.min(h-1, crop.y));
-    sw = Math.max(1, Math.min(w - sx, crop.w));
-    sh = Math.max(1, Math.min(h - sy, crop.h));
+    document.querySelectorAll(".page").forEach(p=>{
+      p.classList.toggle("active", p.getAttribute("data-page")===name);
+    });
+    document.querySelectorAll(".navBtn").forEach(b=>{
+      b.classList.toggle("active", b.getAttribute("data-nav")===name);
+    });
+    const sub=$("#headerSubtitle");
+    if(sub){
+      sub.textContent =
+        name==="home" ? "Offline • PDF • Foto scontrini • Backup" :
+        name==="archive" ? "Archivio • Lista o Timeline" :
+        "Report • PDF + Analisi categorie";
+    }
+    if(name==="archive") renderArchive();
+    if(name==="report") renderAnalysis();
   }
 
-  const base = document.createElement("canvas");
-  base.width = sw; base.height = sh;
-  const bctx = base.getContext("2d", { willReadFrequently:true });
-  bctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-
-  const imgData = bctx.getImageData(0,0,sw,sh);
-  const d = imgData.data;
-  const c = contrast;
-  const br = bright;
-  for(let i=0;i<d.length;i+=4){
-    let r=d[i], g=d[i+1], b=d[i+2];
-    r = (r - 128) * c + 128 + br;
-    g = (g - 128) * c + 128 + br;
-    b = (b - 128) * c + 128 + br;
-    d[i]   = Math.max(0, Math.min(255, r));
-    d[i+1] = Math.max(0, Math.min(255, g));
-    d[i+2] = Math.max(0, Math.min(255, b));
+  // ---------------- DB ----------------
+  let db=null;
+  function openDB(){
+    return new Promise((resolve,reject)=>{
+      try {
+        const req=indexedDB.open(APP.dbName, APP.dbVersion);
+        req.onupgradeneeded=()=>{
+          const _db=req.result;
+          let st;
+          if(!_db.objectStoreNames.contains(APP.store)){
+            st=_db.createObjectStore(APP.store,{keyPath:"id"});
+          } else {
+            st = req.transaction.objectStore(APP.store);
+          }
+          try{ if(!st.indexNames.contains("by_date")) st.createIndex("by_date","date",{unique:false}); }catch(_){}
+          try{ if(!st.indexNames.contains("by_month")) st.createIndex("by_month","month",{unique:false}); }catch(_){}
+          try{ if(!st.indexNames.contains("by_category")) st.createIndex("by_category","category",{unique:false}); }catch(_){}
+          try{ if(!st.indexNames.contains("by_amount")) st.createIndex("by_amount","amount",{unique:false}); }catch(_){}
+          try{ if(!st.indexNames.contains("by_type")) st.createIndex("by_type","type",{unique:false}); }catch(_){}
+        };
+        req.onsuccess=()=>{ db=req.result; resolve(true); };
+        req.onerror=()=>reject(req.error);
+      } catch(e) {
+        console.error("Errore apertura DB:", e);
+        resolve(false);
+      }
+    });
   }
-  bctx.putImageData(imgData,0,0);
-
-  const rad = (rotateDeg % 360) * Math.PI / 180;
-  const rot90 = (Math.abs(rotateDeg) % 180) === 90;
-  const out = document.createElement("canvas");
-  out.width = rot90 ? sh : sw;
-  out.height = rot90 ? sw : sh;
-  const octx = out.getContext("2d");
-  octx.translate(out.width/2, out.height/2);
-  octx.rotate(rad);
-  octx.drawImage(base, -sw/2, -sh/2);
-
-  const ow=out.width, oh=out.height;
-  const max=APP.photoMaxSide;
-  const scale=Math.min(1, max/Math.max(ow,oh));
-  const rw=Math.max(1, Math.round(ow*scale));
-  const rh=Math.max(1, Math.round(oh*scale));
-
-  const fin=document.createElement("canvas");
-  fin.width=rw; fin.height=rh;
-  const fctx=fin.getContext("2d");
-  fctx.drawImage(out, 0,0, ow,oh, 0,0, rw,rh);
-
-  return fin.toDataURL("image/jpeg", APP.photoJpegQuality);
-}
-
-function dataURLtoFile(dataurl){
-  const arr = dataurl.split(',');
-  const mime = arr[0].match(/:(.*?);/)[1];
-  const bstr = atob(arr[1]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  while(n--) u8arr[n] = bstr.charCodeAt(n);
-  return new File([u8arr], "scan.jpg", {type:mime});
-}
-// ---------------- DATA + UI ----------------
-let all=[];
-let archiveLimit=80;
-let __lastFilterKey="";
-let editId=null;
-let modalCurrentId=null;
-
-// scanner state
-let scanImg=null;
-let scanRotate=0;
-let scanContrast=1.15;
-let scanBright=8;
-let cropMargins={l:2,r:2,t:2,b:2};
-let previewPhoto=null;
-let selectedPhotos=[]; // compressed previews (dataURL)
-let selectedOriginals=[]; // originals (dataURL)
-let selectedGeo=null; // {lat,lon,acc,ts}
-
-function fillCategories(){
-  $("#inCategory").innerHTML = CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-  $("#fCategory").innerHTML = `<option value="">Tutte</option>` + CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-}
-
-function applyFilters(){
-  const m = ($("#fMonth")?.value || "").trim();
-  const c = ($("#fCategory")?.value || "").trim();
-  const q = ($("#fSearch")?.value || "").trim().toLowerCase();
-
-  const from = $("#fFrom")?.value || "";
-  const to   = $("#fTo")?.value || "";
-  const minV = parseEuro($("#fMin")?.value || "");
-  const maxV = parseEuro($("#fMax")?.value || "");
-  const hasP = ($("#fHasPhoto")?.value || "");
-  const tagQ = ($("#fTag")?.value || "").trim().toLowerCase();
-
-  const __key = [m,c,q,from,to,String(minV),String(maxV),hasP,tagQ].join("|");
-  if(__key !== __lastFilterKey){ __lastFilterKey = __key; archiveLimit = 80; }
-
-  let list = all.slice();
-
-  // Exclude recurring templates from normal views
-  list = list.filter(x=>String(x.type||"expense")!=="recurring_template");
-
-  if(m) list = list.filter(x=>(x.month||yyyymm(x.date||""))===m);
-  if(c) list = list.filter(x=>x.category===c);
-  if(q) list = list.filter(x =>
-    (x.note||"").toLowerCase().includes(q) ||
-    (x.category||"").toLowerCase().includes(q) ||
-    (Array.isArray(x.tags)? x.tags.join(" ").toLowerCase().includes(q) : false)
-  );
-
-  if(from) list = list.filter(x=> (x.date||"") >= from);
-  if(to)   list = list.filter(x=> (x.date||"") <= to);
-
-  if(Number.isFinite(minV)) list = list.filter(x=>(+x.amount||0) >= minV);
-  if(Number.isFinite(maxV) && maxV>0) list = list.filter(x=>(+x.amount||0) <= maxV);
-
-  if(hasP==="1") list = list.filter(x=>hasAnyPhoto(x));
-  if(hasP==="0") list = list.filter(x=>!hasAnyPhoto(x));
-
-  if(tagQ){
-    list = list.filter(x=>{
-      const t = Array.isArray(x.tags) ? x.tags : [];
-      return t.some(z=>String(z||"").toLowerCase().includes(tagQ));
+  function txStore(mode="readonly"){
+    return db.transaction(APP.store, mode).objectStore(APP.store);
+  }
+  function dbGetAll(){
+    return new Promise((resolve,reject)=>{
+      const req=txStore("readonly").getAll();
+      req.onsuccess=()=>resolve(req.result||[]);
+      req.onerror=()=>reject(req.error);
+    });
+  }
+  function dbPut(item){
+    return new Promise((resolve,reject)=>{
+      const req=txStore("readwrite").put(item);
+      req.onsuccess=()=>resolve(true);
+      req.onerror=()=>reject(req.error);
+    });
+  }
+  function dbDelete(id){
+    return new Promise((resolve,reject)=>{
+      const req=txStore("readwrite").delete(id);
+      req.onsuccess=()=>resolve(true);
+      req.onerror=()=>reject(req.error);
+    });
+  }
+  function dbClear(){
+    return new Promise((resolve,reject)=>{
+      const req=txStore("readwrite").clear();
+      req.onsuccess=()=>resolve(true);
+      req.onerror=()=>reject(req.error);
     });
   }
 
-  list.sort((a,b)=>(String(b.date||"").localeCompare(String(a.date||""))));
-  return list;
-}
-
-function cafBadgeHtml(cat){
-  return isCaf(cat) ? `<span class="badge caf">⭐ Detraibile (730)</span>` : "";
-}
-
-function primaryPhoto(x){
-  try{
-    return x && (x.photo || (Array.isArray(x.photos) ? x.photos[0] : null)) || null;
-  }catch(_){ return null; }
-}
-function hasAnyPhoto(x){
-  try{
-    return !!(primaryPhoto(x) || (Array.isArray(x.photos) && x.photos.length));
-  }catch(_){ return false; }
-}
-
-function calcStats(){
-  const mNow=monthNow();
-  const yNow=String(new Date().getFullYear());
-  const monthTotal = all.filter(x=>String(x.type||"expense")!=="recurring_template" && x.month===mNow).reduce((s,x)=>s+(+x.amount||0),0);
-  const yearTotal  = all.filter(x=>String(x.type||"expense")!=="recurring_template" && (x.date||"").startsWith(yNow+"-")).reduce((s,x)=>s+(+x.amount||0),0);
-  $("#statMonth").textContent = money(monthTotal, settings.baseCurrency);
-  $("#statYear").textContent = money(yearTotal, settings.baseCurrency);
-  renderBudgetHome(monthTotal, mNow);
-}
-
-function renderRecent(){
-  const el=$("#recentList");
-  const list=all.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,6);
-  if(list.length===0){
-    el.innerHTML = `<div class="hint">Ancora nessuna spesa. Premi “＋” per aggiungerne una.</div>`;
-    return;
-  }
-  el.innerHTML = list.map(x=>`
-    <div class="item" data-open="${escapeHtml(x.id)}">
-      <div class="thumb">${primaryPhoto(x)?`<img src="${primaryPhoto(x)}" alt="scontrino">`:"—"}</div>
-      <div class="meta">
-        <div class="title">${escapeHtml(x.note||"Spesa")}${cafBadgeHtml(x.category)}</div>
-        <div class="sub">${escapeHtml(x.date)} • ${escapeHtml(x.category)}</div>
-      </div>
-      <div class="amt">${money(x.amount, x.currency||settings.baseCurrency)}</div>
-    </div>
-  `).join("");
-  // Se vuoi il bottone "Carica altre", scommentare:
-  // if(list.length > 6){
-  //   const more = document.createElement("button");
-  //   more.className = "btn";
-  //   more.type = "button";
-  //   more.textContent = `Carica altre (${list.length - 6})`;
-  //   more.addEventListener("click", ()=>{ archiveLimit += 80; renderArchive(); });
-  //   el.appendChild(more);
-  // }
-  el.querySelectorAll("[data-open]").forEach(r=>r.addEventListener("click",()=>openDetails(r.getAttribute("data-open"))));
-}
-
-function renderList(){
-  const el=$("#list");
-  const list=applyFilters();
-  const shown = list.slice(0, archiveLimit);
-  const total=list.reduce((s,x)=>s+(+x.amount||0),0);
-  $("#countLabel").textContent = `${list.length} spese (totale in app: ${all.length})`;
-  $("#sumLabel").textContent = `Totale filtro: ${money(total, settings.baseCurrency)}`;
-
-  if(list.length===0){
-    el.innerHTML = `<div class="hint">Nessuna spesa con questi filtri. Premi “＋” per aggiungere.</div>`;
-    return;
-  }
-  el.innerHTML = shown.map(x=>`
-    <div class="item" data-open="${escapeHtml(x.id)}">
-      <div class="thumb">${primaryPhoto(x)?`<img src="${primaryPhoto(x)}" alt="scontrino">`:"—"}</div>
-      <div class="meta">
-        <div class="title">${escapeHtml(x.note||"Spesa")}${cafBadgeHtml(x.category)}</div>
-        <div class="sub">${escapeHtml(x.date)} • ${escapeHtml(x.category)}</div>
-      </div>
-      <div class="amt">${money(x.amount, x.currency||settings.baseCurrency)}</div>
-    </div>
-  `).join("");
-  el.querySelectorAll("[data-open]").forEach(r=>r.addEventListener("click",()=>openDetails(r.getAttribute("data-open"))));
-}
-
-function renderTimeline(){
-  const el=$("#timeline");
-  const list=applyFilters();
-  const shown = list.slice(0, archiveLimit);
-  if(list.length===0){
-    el.innerHTML = `<div class="hint">Nessuna spesa con questi filtri. Premi “＋” per aggiungere.</div>`;
-    return;
+  // ---------------- PHOTO / SCANNER ----------------
+  async function fileToImage(file){
+    const url = URL.createObjectURL(file);
+    return new Promise((resolve,reject)=>{
+      const img=new Image();
+      img.onload=()=>{ 
+        URL.revokeObjectURL(url); 
+        resolve(img); 
+      };
+      img.onerror=()=>{ 
+        URL.revokeObjectURL(url); 
+        reject(new Error("Immagine non valida")); 
+      };
+      img.src=url;
+    });
   }
 
-  const map=new Map();
-  for(const x of shown){
-    const k=x.date || "—";
-    if(!map.has(k)) map.set(k, []);
-    map.get(k).push(x);
+  async function imageToDataUrl(img, rotateDeg=0, crop=null, contrast=1.0, bright=0){
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+
+    let sx=0, sy=0, sw=w, sh=h;
+    if(crop){
+      sx = Math.max(0, Math.min(w-1, crop.x));
+      sy = Math.max(0, Math.min(h-1, crop.y));
+      sw = Math.max(1, Math.min(w - sx, crop.w));
+      sh = Math.max(1, Math.min(h - sy, crop.h));
+    }
+
+    const base = document.createElement("canvas");
+    base.width = sw; base.height = sh;
+    const bctx = base.getContext("2d", { willReadFrequently:true });
+    bctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+
+    const imgData = bctx.getImageData(0,0,sw,sh);
+    const d = imgData.data;
+    const c = contrast;
+    const br = bright;
+    for(let i=0;i<d.length;i+=4){
+      let r=d[i], g=d[i+1], b=d[i+2];
+      r = (r - 128) * c + 128 + br;
+      g = (g - 128) * c + 128 + br;
+      b = (b - 128) * c + 128 + br;
+      d[i]   = Math.max(0, Math.min(255, r));
+      d[i+1] = Math.max(0, Math.min(255, g));
+      d[i+2] = Math.max(0, Math.min(255, b));
+    }
+    bctx.putImageData(imgData,0,0);
+
+    const rad = (rotateDeg % 360) * Math.PI / 180;
+    const rot90 = (Math.abs(rotateDeg) % 180) === 90;
+    const out = document.createElement("canvas");
+    out.width = rot90 ? sh : sw;
+    out.height = rot90 ? sw : sh;
+    const octx = out.getContext("2d");
+    octx.translate(out.width/2, out.height/2);
+    octx.rotate(rad);
+    octx.drawImage(base, -sw/2, -sh/2);
+
+    const ow=out.width, oh=out.height;
+    const max=APP.photoMaxSide;
+    const scale=Math.min(1, max/Math.max(ow,oh));
+    const rw=Math.max(1, Math.round(ow*scale));
+    const rh=Math.max(1, Math.round(oh*scale));
+
+    const fin=document.createElement("canvas");
+    fin.width=rw; fin.height=rh;
+    const fctx=fin.getContext("2d");
+    fctx.drawImage(out, 0,0, ow,oh, 0,0, rw,rh);
+
+    return fin.toDataURL("image/jpeg", APP.photoJpegQuality);
   }
 
-  const keys=[...map.keys()].sort((a,b)=>b.localeCompare(a));
-  el.innerHTML = keys.map(date=>{
-    const items=map.get(date);
-    const tot=items.reduce((s,x)=>s+(+x.amount||0),0);
-    const rows = items.map(x=>`
-      <div class="item" data-open="${escapeHtml(x.id)}" style="border-radius:16px">
-        <div class="thumb" style="width:60px;height:60px">${primaryPhoto(x)?`<img src="${primaryPhoto(x)}" alt="scontrino">`:"—"}</div>
+  function dataURLtoFile(dataurl){
+    const arr = dataurl.split(',');
+    const mime = arr[0].match(/:(.*?);/)[1];
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while(n--) u8arr[n] = bstr.charCodeAt(n);
+    return new File([u8arr], "scan.jpg", {type:mime});
+  }
+
+  // ---------------- DATA + UI ----------------
+  let all=[];
+  let archiveLimit=80;
+  let __lastFilterKey="";
+  let editId=null;
+  let modalCurrentId=null;
+
+  let scanImg=null;
+  let scanRotate=0;
+  let scanContrast=1.15;
+  let scanBright=8;
+  let cropMargins={l:2,r:2,t:2,b:2};
+  let previewPhoto=null;
+  let selectedPhotos=[];
+  let selectedOriginals=[];
+  let selectedGeo=null;
+
+  function fillCategories(){
+    $("#inCategory").innerHTML = CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+    $("#fCategory").innerHTML = `<option value="">Tutte</option>` + CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  }
+
+  function applyFilters(){
+    const m = ($("#fMonth")?.value || "").trim();
+    const c = ($("#fCategory")?.value || "").trim();
+    const q = ($("#fSearch")?.value || "").trim().toLowerCase();
+
+    const from = $("#fFrom")?.value || "";
+    const to   = $("#fTo")?.value || "";
+    const minV = parseEuro($("#fMin")?.value || "");
+    const maxV = parseEuro($("#fMax")?.value || "");
+    const hasP = ($("#fHasPhoto")?.value || "");
+    const tagQ = ($("#fTag")?.value || "").trim().toLowerCase();
+
+    const __key = [m,c,q,from,to,String(minV),String(maxV),hasP,tagQ].join("|");
+    if(__key !== __lastFilterKey){ __lastFilterKey = __key; archiveLimit = 80; }
+
+    let list = all.slice();
+    list = list.filter(x=>String(x.type||"expense")!=="recurring_template");
+
+    if(m) list = list.filter(x=>(x.month||yyyymm(x.date||""))===m);
+    if(c) list = list.filter(x=>x.category===c);
+    if(q) list = list.filter(x =>
+      (x.note||"").toLowerCase().includes(q) ||
+      (x.category||"").toLowerCase().includes(q) ||
+      (Array.isArray(x.tags)? x.tags.join(" ").toLowerCase().includes(q) : false)
+    );
+
+    if(from) list = list.filter(x=> (x.date||"") >= from);
+    if(to)   list = list.filter(x=> (x.date||"") <= to);
+
+    if(Number.isFinite(minV)) list = list.filter(x=>(+x.amount||0) >= minV);
+    if(Number.isFinite(maxV) && maxV>0) list = list.filter(x=>(+x.amount||0) <= maxV);
+
+    if(hasP==="1") list = list.filter(x=>hasAnyPhoto(x));
+    if(hasP==="0") list = list.filter(x=>!hasAnyPhoto(x));
+
+    if(tagQ){
+      list = list.filter(x=>{
+        const t = Array.isArray(x.tags) ? x.tags : [];
+        return t.some(z=>String(z||"").toLowerCase().includes(tagQ));
+      });
+    }
+
+    list.sort((a,b)=>(String(b.date||"").localeCompare(String(a.date||""))));
+    return list;
+  }
+
+  function cafBadgeHtml(cat){
+    return isCaf(cat) ? `<span class="badge caf">⭐ Detraibile (730)</span>` : "";
+  }
+
+  function primaryPhoto(x){
+    try{
+      return x && (x.photo || (Array.isArray(x.photos) ? x.photos[0] : null)) || null;
+    }catch(_){ return null; }
+  }
+  function hasAnyPhoto(x){
+    try{
+      return !!(primaryPhoto(x) || (Array.isArray(x.photos) && x.photos.length));
+    }catch(_){ return false; }
+  }
+
+  function calcStats(){
+    const mNow=monthNow();
+    const yNow=String(new Date().getFullYear());
+    const monthTotal = all.filter(x=>String(x.type||"expense")!=="recurring_template" && x.month===mNow).reduce((s,x)=>s+(+x.amount||0),0);
+    const yearTotal  = all.filter(x=>String(x.type||"expense")!=="recurring_template" && (x.date||"").startsWith(yNow+"-")).reduce((s,x)=>s+(+x.amount||0),0);
+    $("#statMonth").textContent = money(monthTotal, settings.baseCurrency);
+    $("#statYear").textContent = money(yearTotal, settings.baseCurrency);
+    renderBudgetHome(monthTotal, mNow);
+  }
+
+  function renderRecent(){
+    const el=$("#recentList");
+    const list=all.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,6);
+    if(list.length===0){
+      el.innerHTML = `<div class="hint">Ancora nessuna spesa. Premi “＋” per aggiungerne una.</div>`;
+      return;
+    }
+    el.innerHTML = list.map(x=>`
+      <div class="item" data-open="${escapeHtml(x.id)}">
+        <div class="thumb">${primaryPhoto(x)?`<img src="${primaryPhoto(x)}" alt="scontrino">`:"—"}</div>
         <div class="meta">
           <div class="title">${escapeHtml(x.note||"Spesa")}${cafBadgeHtml(x.category)}</div>
-          <div class="sub">${escapeHtml(x.category)}</div>
+          <div class="sub">${escapeHtml(x.date)} • ${escapeHtml(x.category)}</div>
         </div>
         <div class="amt">${money(x.amount, x.currency||settings.baseCurrency)}</div>
       </div>
     `).join("");
+    el.querySelectorAll("[data-open]").forEach(r=>r.addEventListener("click",()=>openDetails(r.getAttribute("data-open"))));
+  }
 
-    return `
-      <div class="dayGroup">
-        <div class="dayHead">
-          <div class="d">${escapeHtml(date)}</div>
-          <div class="t">${money(tot, settings.baseCurrency)}</div>
+  function renderList(){
+    const el=$("#list");
+    const list=applyFilters();
+    const shown = list.slice(0, archiveLimit);
+    const total=list.reduce((s,x)=>s+(+x.amount||0),0);
+    $("#countLabel").textContent = `${list.length} spese (totale in app: ${all.length})`;
+    $("#sumLabel").textContent = `Totale filtro: ${money(total, settings.baseCurrency)}`;
+
+    if(list.length===0){
+      el.innerHTML = `<div class="hint">Nessuna spesa con questi filtri. Premi “＋” per aggiungere.</div>`;
+      return;
+    }
+    el.innerHTML = shown.map(x=>`
+      <div class="item" data-open="${escapeHtml(x.id)}">
+        <div class="thumb">${primaryPhoto(x)?`<img src="${primaryPhoto(x)}" alt="scontrino">`:"—"}</div>
+        <div class="meta">
+          <div class="title">${escapeHtml(x.note||"Spesa")}${cafBadgeHtml(x.category)}</div>
+          <div class="sub">${escapeHtml(x.date)} • ${escapeHtml(x.category)}</div>
         </div>
-        <div class="dayBody">${rows}</div>
+        <div class="amt">${money(x.amount, x.currency||settings.baseCurrency)}</div>
       </div>
-    `;
-  }).join("");
-  if(list.length > shown.length){
-    const more = document.createElement("button");
-    more.className="btn";
-    more.type="button";
-    more.textContent = `Carica altre (${list.length - shown.length})`;
-    more.addEventListener("click", ()=>{ archiveLimit += 80; renderArchive(); });
-    el.appendChild(more);
+    `).join("");
+    el.querySelectorAll("[data-open]").forEach(r=>r.addEventListener("click",()=>openDetails(r.getAttribute("data-open"))));
   }
 
-  el.querySelectorAll("[data-open]").forEach(r=>r.addEventListener("click",()=>openDetails(r.getAttribute("data-open"))));
-}
+  function renderTimeline(){
+    const el=$("#timeline");
+    const list=applyFilters();
+    const shown = list.slice(0, archiveLimit);
+    if(list.length===0){
+      el.innerHTML = `<div class="hint">Nessuna spesa con questi filtri. Premi “＋” per aggiungere.</div>`;
+      return;
+    }
 
-function renderArchive(){
-  const listMode = settings.viewMode === "list";
-  $("#list").style.display = listMode ? "flex" : "none";
-  $("#timeline").style.display = listMode ? "none" : "flex";
-  $("#viewList").classList.toggle("active", listMode);
-  $("#viewTimeline").classList.toggle("active", !listMode);
-  if(listMode) renderList(); else renderTimeline();
-}
+    const map=new Map();
+    for(const x of shown){
+      const k=x.date || "—";
+      if(!map.has(k)) map.set(k, []);
+      map.get(k).push(x);
+    }
 
+    const keys=[...map.keys()].sort((a,b)=>b.localeCompare(a));
+    el.innerHTML = keys.map(date=>{
+      const items=map.get(date);
+      const tot=items.reduce((s,x)=>s+(+x.amount||0),0);
+      const rows = items.map(x=>`
+        <div class="item" data-open="${escapeHtml(x.id)}" style="border-radius:16px">
+          <div class="thumb" style="width:60px;height:60px">${primaryPhoto(x)?`<img src="${primaryPhoto(x)}" alt="scontrino">`:"—"}</div>
+          <div class="meta">
+            <div class="title">${escapeHtml(x.note||"Spesa")}${cafBadgeHtml(x.category)}</div>
+            <div class="sub">${escapeHtml(x.category)}</div>
+          </div>
+          <div class="amt">${money(x.amount, x.currency||settings.baseCurrency)}</div>
+        </div>
+      `).join("");
 
-async function materializeRecurringForCurrentPeriod(){
-  // Create real expenses from recurring templates (monthly/yearly) for the current period only.
-  const now = new Date();
-  const curMonth = monthNow(); // YYYY-MM
-  const curYear = String(now.getFullYear());
+      return `
+        <div class="dayGroup">
+          <div class="dayHead">
+            <div class="d">${escapeHtml(date)}</div>
+            <div class="t">${money(tot, settings.baseCurrency)}</div>
+          </div>
+          <div class="dayBody">${rows}</div>
+        </div>
+      `;
+    }).join("");
+    if(list.length > shown.length){
+      const more = document.createElement("button");
+      more.className="btn";
+      more.type="button";
+      more.textContent = `Carica altre (${list.length - shown.length})`;
+      more.addEventListener("click", ()=>{ archiveLimit += 80; renderArchive(); });
+      el.appendChild(more);
+    }
 
-  const templates = all.filter(x=>String(x.type||"") === "recurring_template" && x.recurring && x.recurring.freq);
-  if(!templates.length) return;
+    el.querySelectorAll("[data-open]").forEach(r=>r.addEventListener("click",()=>openDetails(r.getAttribute("data-open"))));
+  }
 
-  let created = 0;
-  for(const t of templates){
+  function renderArchive(){
+    const listMode = settings.viewMode === "list";
+    $("#list").style.display = listMode ? "flex" : "none";
+    $("#timeline").style.display = listMode ? "none" : "flex";
+    $("#viewList").classList.toggle("active", listMode);
+    $("#viewTimeline").classList.toggle("active", !listMode);
+    if(listMode) renderList(); else renderTimeline();
+  }
+
+  async function materializeRecurringForCurrentPeriod(){
+    const now = new Date();
+    const curMonth = monthNow();
+    const curYear = String(now.getFullYear());
+
+    const templates = all.filter(x=>String(x.type||"") === "recurring_template" && x.recurring && x.recurring.freq);
+    if(!templates.length) return;
+
+    let created = 0;
+    for(const t of templates){
+      try{
+        const start = isoToDate(t.recurring.startDate || t.date);
+        if(!start) continue;
+
+        let targetDate;
+        if(t.recurring.freq === "monthly"){
+          const [y,m] = curMonth.split("-").map(Number);
+          const day = start.getDate();
+          const lastDay = new Date(y, m, 0).getDate();
+          targetDate = new Date(y, m-1, Math.min(day, lastDay));
+        }else if(t.recurring.freq === "yearly"){
+          const y = Number(curYear);
+          const m = start.getMonth();
+          const day = start.getDate();
+          const lastDay = new Date(y, m+1, 0).getDate();
+          targetDate = new Date(y, m, Math.min(day, lastDay));
+        }else{
+          continue;
+        }
+
+        const iso = targetDate.toISOString().slice(0,10);
+        if(iso > todayISO()) continue;
+
+        const already = all.some(x=>x.recurringParentId===t.id && x.date===iso && String(x.type||"expense")!=="recurring_template");
+        if(already) continue;
+
+        const id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        const inst = {
+          id,
+          type:"expense",
+          recurringParentId: t.id,
+          amount: +t.amount || 0,
+          currency: t.currency || settings.baseCurrency || "EUR",
+          date: iso,
+          month: yyyymm(iso),
+          category: t.category || "Altro",
+          note: t.note || t.category || "Spesa",
+          tags: Array.isArray(t.tags) ? t.tags.slice() : [],
+          geo: t.geo || null,
+          photo: null,
+          photos: [],
+          photosOriginal: []
+        };
+        await dbPut(inst);
+        created++;
+      }catch(e){ console.warn("recurring create failed", e); }
+    }
+    if(created) toast(`Ricorrenze create: ${created} ✅`, 1200);
+  }
+
+  async function refresh(){
+    all = await dbGetAll();
+    try{ await materializeRecurringForCurrentPeriod(); }catch(e){}
+    all = await dbGetAll();
     try{
-      const start = isoToDate(t.recurring.startDate || t.date);
-      if(!start) continue;
-
-      let targetDate;
-      if(t.recurring.freq === "monthly"){
-        const [y,m] = curMonth.split("-").map(Number);
-        const day = start.getDate();
-        const lastDay = new Date(y, m, 0).getDate();
-        targetDate = new Date(y, m-1, Math.min(day, lastDay));
-      }else if(t.recurring.freq === "yearly"){
-        const y = Number(curYear);
-        const m = start.getMonth();
-        const day = start.getDate();
-        const lastDay = new Date(y, m+1, 0).getDate();
-        targetDate = new Date(y, m, Math.min(day, lastDay));
-      }else{
-        continue;
+      let changed=false;
+      for(const x of all){
+        if(!x.month && x.date){ x.month = yyyymm(x.date); changed=true; }
+        if(typeof x.amount !== 'number') x.amount = Number(x.amount)||0;
       }
-
-      const iso = targetDate.toISOString().slice(0,10);
-      if(iso > todayISO()) continue; // do not pre-create future
-
-      const already = all.some(x=>x.recurringParentId===t.id && x.date===iso && String(x.type||"expense")!=="recurring_template");
-      if(already) continue;
-
-      const id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-      const inst = {
-        id,
-        type:"expense",
-        recurringParentId: t.id,
-        amount: +t.amount || 0,
-        currency: t.currency || settings.baseCurrency || "EUR",
-        date: iso,
-        month: yyyymm(iso),
-        category: t.category || "Altro",
-        note: t.note || t.category || "Spesa",
-        tags: Array.isArray(t.tags) ? t.tags.slice() : [],
-        geo: t.geo || null,
-        photo: null,
-        photos: [],
-        photosOriginal: []
-      };
-      await dbPut(inst);
-      created++;
-    }catch(e){ console.warn("recurring create failed", e); }
+      if(changed){
+        for(const x of all){ if(x.month && x.id) await dbPut(x); }
+      }
+    }catch(e){}
+    setProUI();
+    calcStats();
+    renderRecent();
+    renderArchive();
+    renderAnalysis();
   }
-  if(created) toast(`Ricorrenze create: ${created} ✅`, 1200);
-}
 
-async function refresh(){
-  all = await dbGetAll();
-  // build instances from recurring templates (idempotent)
-  try{ await materializeRecurringForCurrentPeriod(); }catch(e){}
-  all = await dbGetAll();
-  // migrate old entries missing 'month'
-  try{
-    let changed=false;
-    for(const x of all){
-      if(!x.month && x.date){ x.month = yyyymm(x.date); changed=true; }
-      if(typeof x.amount !== 'number') x.amount = Number(x.amount)||0;
-    }
-    if(changed){
-      // write back only updated items
-      for(const x of all){ if(x.month && x.id) await dbPut(x); }
-    }
-  }catch(e){}
-  setProUI();
-  calcStats();
-  renderRecent();
-  renderArchive();
-  renderAnalysis();
-}
-// ---------------- SETTINGS UI ----------------
-const $ocrKeyInput = $("#ocrKeyInput");
-const $ocrProviderSelect = $("#ocrProviderSelect");
-const $ocrEndpointInput = $("#ocrEndpointInput");
-const $ocrAutoSaveToggle = $("#ocrAutoSaveToggle");
-const $langSelect  = $("#langSelect");
-const $btnSaveSettings = $("#btnSaveSettings");
-const $btnResetApp = $("#btnResetApp");
-const $btnTestOcrKey = $("#btnTestOcrKey");
-const $ocrKeyStatus = $("#ocrKeyStatus");
+  // ---------------- SETTINGS UI ----------------
+  const $ocrKeyInput = $("#ocrKeyInput");
+  const $ocrProviderSelect = $("#ocrProviderSelect");
+  const $ocrEndpointInput = $("#ocrEndpointInput");
+  const $ocrAutoSaveToggle = $("#ocrAutoSaveToggle");
+  const $langSelect  = $("#langSelect");
+  const $btnSaveSettings = $("#btnSaveSettings");
+  const $btnResetApp = $("#btnResetApp");
+  const $btnTestOcrKey = $("#btnTestOcrKey");
+  const $ocrKeyStatus = $("#ocrKeyStatus");
 
-function applyLang(){
-  const lang = settings.lang || "it";
-  document.documentElement.setAttribute("lang", lang);
-  // minimal nav labels
-  document.querySelectorAll(".navBtn span").forEach(sp=>{
-    const txt = sp.textContent.trim();
-    if(lang==="en"){
-      if(txt==="Archivio") sp.textContent="Archive";
-      if(txt==="Report") sp.textContent="Reports";
-      if(txt==="Impostazioni") sp.textContent="Settings";
-    } else {
-      if(txt==="Archive") sp.textContent="Archivio";
-      if(txt==="Reports") sp.textContent="Report";
-      if(txt==="Settings") sp.textContent="Impostazioni";
-    }
-  });
-}
-applyLang();
+  function applyLang(){
+    const lang = settings.lang || "it";
+    document.documentElement.setAttribute("lang", lang);
+    document.querySelectorAll(".navBtn span").forEach(sp=>{
+      const txt = sp.textContent.trim();
+      if(lang==="en"){
+        if(txt==="Archivio") sp.textContent="Archive";
+        if(txt==="Report") sp.textContent="Reports";
+        if(txt==="Impostazioni") sp.textContent="Settings";
+      } else {
+        if(txt==="Archive") sp.textContent="Archivio";
+        if(txt==="Reports") sp.textContent="Report";
+        if(txt==="Settings") sp.textContent="Impostazioni";
+      }
+    });
+  }
+  applyLang();
 
-function syncSettingsForm(){
-  if($ocrKeyInput) $ocrKeyInput.value = settings.ocrSpaceKey || "";
-  if($ocrProviderSelect) $ocrProviderSelect.value = (settings.ocrMode || "offline");
-  if($ocrEndpointInput) $ocrEndpointInput.value = (settings.ocrEndpoint || "");
-  if($ocrAutoSaveToggle) $ocrAutoSaveToggle.checked = !!settings.ocrAutoSave;
-  if($langSelect)  $langSelect.value = settings.lang || "it";
-}
+  function syncSettingsForm(){
+    if($ocrKeyInput) $ocrKeyInput.value = settings.ocrSpaceKey || "";
+    if($ocrProviderSelect) $ocrProviderSelect.value = (settings.ocrMode || "offline");
+    if($ocrEndpointInput) $ocrEndpointInput.value = (settings.ocrEndpoint || "");
+    if($ocrAutoSaveToggle) $ocrAutoSaveToggle.checked = !!settings.ocrAutoSave;
+    if($langSelect)  $langSelect.value = settings.lang || "it";
+  }
 
-if($btnSaveSettings){
-  $btnSaveSettings.addEventListener("click", ()=>{
-    const key = ($ocrKeyInput?.value || "").trim();
-    if(key) settings.ocrSpaceKey = key;
-    const mode = ($ocrProviderSelect?.value || "offline").toLowerCase();
-    settings.ocrMode = mode;
-    const ep = ($ocrEndpointInput?.value || "").trim();
-    settings.ocrEndpoint = ep;
-    settings.ocrAutoSave = !!($ocrAutoSaveToggle && $ocrAutoSaveToggle.checked);
-    settings.lang = $langSelect?.value || "it";
-    saveSettings();
-    applyLang();
-    toast(settings.lang==="en" ? "Settings saved" : "Impostazioni salvate");
-  });
-}
+  if($btnSaveSettings){
+    $btnSaveSettings.addEventListener("click", ()=>{
+      const key = ($ocrKeyInput?.value || "").trim();
+      if(key) settings.ocrSpaceKey = key;
+      const mode = ($ocrProviderSelect?.value || "offline").toLowerCase();
+      settings.ocrMode = mode;
+      const ep = ($ocrEndpointInput?.value || "").trim();
+      settings.ocrEndpoint = ep;
+      settings.ocrAutoSave = !!($ocrAutoSaveToggle && $ocrAutoSaveToggle.checked);
+      settings.lang = $langSelect?.value || "it";
+      saveSettings();
+      applyLang();
+      toast(settings.lang==="en" ? "Settings saved" : "Impostazioni salvate");
+    });
+  }
 
-
-// Test OCR.Space API key (non invia foto reali: usa un'immagine di test generata)
-if($btnTestOcrKey){
-  $btnTestOcrKey.addEventListener("click", async ()=>{
-    try{
-      if($ocrKeyStatus) $ocrKeyStatus.textContent = "Verifica in corso...";
-      const r = await testOcrSpaceKey();
-      if(r && r.ok){
-        if($ocrKeyStatus) $ocrKeyStatus.textContent = "OK ✅";
-        toast("API key OCR.Space valida ✅");
-      }else{
-        const msg = (r && r.error) ? r.error : "Non valida";
+  if($btnTestOcrKey){
+    $btnTestOcrKey.addEventListener("click", async ()=>{
+      try{
+        if($ocrKeyStatus) $ocrKeyStatus.textContent = "Verifica in corso...";
+        const r = await testOcrSpaceKey();
+        if(r && r.ok){
+          if($ocrKeyStatus) $ocrKeyStatus.textContent = "OK ✅";
+          toast("API key OCR.Space valida ✅");
+        }else{
+          const msg = (r && r.error) ? r.error : "Non valida";
+          if($ocrKeyStatus) $ocrKeyStatus.textContent = "Errore";
+          toast("API key non valida: " + msg);
+        }
+      }catch(e){
         if($ocrKeyStatus) $ocrKeyStatus.textContent = "Errore";
-        toast("API key non valida: " + msg);
+        toast("Test key fallito: " + (e && e.message ? e.message : e));
       }
-    }catch(e){
-      if($ocrKeyStatus) $ocrKeyStatus.textContent = "Errore";
-      toast("Test key fallito: " + (e && e.message ? e.message : e));
-    }
-  });
-}
-
-if($btnResetApp){
-  $btnResetApp.addEventListener("click", ()=>{
-    if(!confirm(settings.lang==="en" ? "Reset all app data?" : "Resettare tutti i dati dell'app?")) return;
-    localStorage.clear();
-    location.reload();
-  });
-}
-
-// ===================== UNIFICAZIONE MODALITÀ SEMPLICE =====================
-function setSimpleMode(on) {
-  try {
-    localStorage.setItem('__sspSimpleMode', on ? '1' : '0');
-    document.body.classList.toggle('ssp-simple', on);
-    const fab = document.getElementById('sspSimpleFabV2');
-    if (fab) fab.textContent = on ? 'Semplice ON' : 'Semplice OFF';
-    const chk = document.getElementById('sspSimpleChkV2');
-    if (chk) chk.checked = on;
-    const activePage = document.querySelector('.page.active')?.getAttribute('data-page');
-    if (activePage === 'home' || activePage === 'archive' || activePage === 'report') {
-      showPage(activePage);
-    }
-    toast(on ? 'Modalità semplice attivata' : 'Modalità semplice disattivata');
-  } catch (e) {}
-}
-
-// Inizializza la modalità semplice all'avvio
-(function initSimpleMode() {
-  const on = localStorage.getItem('__sspSimpleMode') === '1';
-  setSimpleMode(on);
-})();
-
-// Aggiungi listener per il toggle nelle impostazioni (se presente)
-document.addEventListener('change', (e) => {
-  if (e.target && e.target.id === 'sspSimpleChkV2') {
-    setSimpleMode(e.target.checked);
+    });
   }
-});
 
-// ===================== NUOVA FOTOCAMERA AUTOMATICA =====================
-let autoCamStream = null;
-let autoCamAnalyzing = false;
-let autoCamGoodFrames = 0;
-const AUTO_CAM_THRESHOLD = 5; // numero di frame consecutivi "buoni" per scattare
+  if($btnResetApp){
+    $btnResetApp.addEventListener("click", ()=>{
+      if(!confirm(settings.lang==="en" ? "Reset all app data?" : "Resettare tutti i dati dell'app?")) return;
+      localStorage.clear();
+      location.reload();
+    });
+  }
 
-function startAutoCamera() {
-  const video = document.getElementById('camAutoVideo');
-  if (!video) return;
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-      .then(stream => {
-        autoCamStream = stream;
-        video.srcObject = stream;
-        video.play();
-        autoCamAnalyzing = true;
+  // ===================== MODALITÀ SEMPLICE =====================
+  function setSimpleMode(on) {
+    try {
+      localStorage.setItem('__sspSimpleMode', on ? '1' : '0');
+      document.body.classList.toggle('ssp-simple', on);
+      const chk = document.getElementById('sspSimpleChkV2');
+      if (chk) chk.checked = on;
+      const activePage = document.querySelector('.page.active')?.getAttribute('data-page');
+      if (activePage === 'home' || activePage === 'archive' || activePage === 'report') {
+        showPage(activePage);
+      }
+      toast(on ? 'Modalità semplice attivata' : 'Modalità semplice disattivata');
+    } catch (e) {}
+  }
+
+  (function initSimpleMode() {
+    const on = localStorage.getItem('__sspSimpleMode') === '1';
+    setSimpleMode(on);
+  })();
+
+  document.addEventListener('change', (e) => {
+    if (e.target && e.target.id === 'sspSimpleChkV2') {
+      setSimpleMode(e.target.checked);
+    }
+  });
+
+  // ===================== FOTOCAMERA AUTOMATICA =====================
+  let autoCamStream = null;
+  let autoCamAnalyzing = false;
+  let autoCamGoodFrames = 0;
+  const AUTO_CAM_THRESHOLD = 5;
+
+  function startAutoCamera() {
+    const video = document.getElementById('camAutoVideo');
+    if (!video) return;
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(stream => {
+          autoCamStream = stream;
+          video.srcObject = stream;
+          video.play();
+          autoCamAnalyzing = true;
+          autoCamGoodFrames = 0;
+          requestAnimationFrame(analyzeAutoFrame);
+        })
+        .catch(err => {
+          toast("Errore fotocamera: " + err.message);
+        });
+    } else {
+      toast("Fotocamera non supportata");
+    }
+  }
+
+  function analyzeAutoFrame() {
+    if (!autoCamAnalyzing) return;
+    const video = document.getElementById('camAutoVideo');
+    const canvas = document.getElementById('camAutoCanvas');
+    const ctx = canvas.getContext('2d');
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      let sum = 0, sumSq = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+        sum += gray;
+        sumSq += gray * gray;
+      }
+      const mean = sum / (canvas.width * canvas.height);
+      const variance = sumSq / (canvas.width * canvas.height) - mean * mean;
+      const isGood = variance > 2000;
+      document.getElementById('camAutoStatus').textContent = isGood ? "OK" : "Inquadra meglio";
+      if (isGood) {
+        autoCamGoodFrames++;
+        if (autoCamGoodFrames >= AUTO_CAM_THRESHOLD) {
+          captureAutoFrame();
+          return;
+        }
+      } else {
         autoCamGoodFrames = 0;
-        requestAnimationFrame(analyzeAutoFrame);
-      })
-      .catch(err => {
-        toast("Errore fotocamera: " + err.message);
-      });
-  } else {
-    toast("Fotocamera non supportata");
+      }
+    }
+    requestAnimationFrame(analyzeAutoFrame);
   }
-}
 
-function analyzeAutoFrame() {
-  if (!autoCamAnalyzing) return;
-  const video = document.getElementById('camAutoVideo');
-  const canvas = document.getElementById('camAutoCanvas');
-  const ctx = canvas.getContext('2d');
-  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+  function captureAutoFrame() {
+    autoCamAnalyzing = false;
+    if (autoCamStream) {
+      autoCamStream.getTracks().forEach(t => t.stop());
+      autoCamStream = null;
+    }
+    const video = document.getElementById('camAutoVideo');
+    const canvas = document.getElementById('camAutoCanvas');
+    const ctx = canvas.getContext('2d');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    // Analisi semplicistica: varianza dei pixel (contrasto)
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    let sum = 0, sumSq = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      const gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
-      sum += gray;
-      sumSq += gray * gray;
-    }
-    const mean = sum / (canvas.width * canvas.height);
-    const variance = sumSq / (canvas.width * canvas.height) - mean * mean;
-    const isGood = variance > 2000; // soglia empirica
-    document.getElementById('camAutoStatus').textContent = isGood ? "OK" : "Inquadra meglio";
-    if (isGood) {
-      autoCamGoodFrames++;
-      if (autoCamGoodFrames >= AUTO_CAM_THRESHOLD) {
-        captureAutoFrame();
-        return;
-      }
-    } else {
-      autoCamGoodFrames = 0;
-    }
+    ctx.drawImage(video, 0, 0);
+    canvas.toBlob(blob => {
+      const file = new File([blob], "auto_capture.jpg", { type: "image/jpeg" });
+      handleSelectedImages([file]);
+      hideModal('#camAutoModal');
+    }, 'image/jpeg', 0.9);
   }
-  requestAnimationFrame(analyzeAutoFrame);
-}
 
-function captureAutoFrame() {
-  autoCamAnalyzing = false;
-  if (autoCamStream) {
-    autoCamStream.getTracks().forEach(t => t.stop());
-    autoCamStream = null;
+  function openAutoCamera() {
+    // Assicuriamoci che il modale di aggiunta sia aperto prima di avviare l'autoscatto
+    const addModal = document.getElementById('modalAdd');
+    if (!addModal || !addModal.classList.contains('show')) {
+      openAdd(); // apre il modale di aggiunta se non già aperto
+    }
+    showModal('#camAutoModal');
+    setTimeout(startAutoCamera, 300);
   }
-  const video = document.getElementById('camAutoVideo');
-  const canvas = document.getElementById('camAutoCanvas');
-  const ctx = canvas.getContext('2d');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  ctx.drawImage(video, 0, 0);
-  canvas.toBlob(blob => {
-    const file = new File([blob], "auto_capture.jpg", { type: "image/jpeg" });
-    // Passa al flusso normale come se fosse una foto selezionata
-    handleSelectedImages([file]);
-    hideModal('#camAutoModal');
-  }, 'image/jpeg', 0.9);
-}
 
-function openAutoCamera() {
-  showModal('#camAutoModal');
-  setTimeout(startAutoCamera, 300);
-}
+  function canAutoSave() {
+    const modal = $("#modalAdd");
+    if (!modal || !modal.classList.contains('show')) return false;
+    if (editId) return false;
+    const amt = parseEuro($("#inAmount")?.value);
+    const dt = $("#inDate")?.value;
+    return Number.isFinite(amt) && amt > 0 && dt;
+  }
 
-// Funzione per determinare se si può fare autosalvataggio
-function canAutoSave() {
-  const modal = $("#modalAdd");
-  if (!modal || !modal.classList.contains('show')) return false;
-  if (editId) return false; // non in modifica
-  const amt = parseEuro($("#inAmount")?.value);
-  const dt = $("#inDate")?.value;
-  return Number.isFinite(amt) && amt > 0 && dt;
-}
-// ---------------- MODALS ----------------
-  
-
-function openAdd(){
+  // ---------------- MODALS ----------------
+  function openAdd(){
     editId=null;
     previewPhoto=null;
     selectedPhotos=[];
@@ -1250,7 +1170,6 @@ function openAdd(){
     renderAttachmentsPreview();
     applyFastModeUI();
 
-    // optional auto-geo
     if(settings.autoGeo){ try{ captureGeo(); }catch(_){ } }
 
     showModal("#modalAdd");
@@ -1262,14 +1181,13 @@ function openAdd(){
     const wrap=$("#photoPrev");
     const im=$("#photoPrevImg");
     if(!dataUrl){
-      wrap.style.display="none";
-      im.src="";
+      if(wrap) wrap.style.display="none";
+      if(im) im.src="";
       return;
     }
-    im.src=dataUrl;
-    wrap.style.display="block";
+    if(im) im.src=dataUrl;
+    if(wrap) wrap.style.display="block";
   }
-
 
   function renderAttachmentsPreview(){
     const grid = document.getElementById("attachmentsPreview");
@@ -1290,7 +1208,6 @@ function openAdd(){
         if(Number.isFinite(i)){
           selectedPhotos.splice(i,1);
           if(Array.isArray(selectedOriginals) && selectedOriginals.length>i) selectedOriginals.splice(i,1);
-          // keep legacy preview in sync
           previewPhoto = selectedPhotos[0] || null;
           setPhotoPreview(previewPhoto);
           renderAttachmentsPreview();
@@ -1322,7 +1239,6 @@ function openAdd(){
       return;
     }
 
-    // Add all selected files (append mode)
     for(const f of files){
       try{
         const img = await fileToImage(f);
@@ -1333,7 +1249,6 @@ function openAdd(){
             const orig = await fileToDataURL(f);
             selectedOriginals.push(orig);
           }catch(_){
-            // if original fails, keep compressed
             selectedOriginals.push(compressed);
           }
         }
@@ -1346,7 +1261,6 @@ function openAdd(){
     if(previewPhoto) setPhotoPreview(previewPhoto);
     renderAttachmentsPreview();
 
-    // OCR uses first file only (fast + stable)
     const first = files[0];
     if(first && window.__sspReceipt){
       window.__sspReceipt.file = first;
@@ -1354,11 +1268,15 @@ function openAdd(){
     }
     if(first){
       toast(files.length>1 ? `Allegati ${files.length} scontrini ✅` : "Foto caricata ✅");
-      try{ await window.__sspReceipt?.handle?.(first, "select"); }catch(_){}
+      // Lancia OCR
+      try {
+        await window.__sspReceipt?.handle?.(first, "select");
+      } catch(e) {
+        toast("Errore OCR: " + (e.message || "riprova"));
+      }
       try{ scanImg = await fileToImage(first); }catch(_){}
     }
 
-    // Autosalvataggio migliorato
     if (settings.ocrAutoSave && canAutoSave()) {
       setTimeout(() => {
         if (canAutoSave() && !editId) {
@@ -1383,7 +1301,11 @@ function openAdd(){
       toast("Luogo salvato ✅");
     }, (err)=>{
       console.warn(err);
-      if(out) out.textContent = "Permesso negato / errore";
+      let msg = "Permesso negato / errore";
+      if(err.code === 1) msg = "Permesso negato dall'utente";
+      else if(err.code === 2) msg = "Posizione non disponibile";
+      else if(err.code === 3) msg = "Timeout";
+      if(out) out.textContent = msg;
       toast("Impossibile leggere la posizione");
     }, { enableHighAccuracy:true, timeout:8000, maximumAge:60000 });
   }
@@ -1391,10 +1313,8 @@ function openAdd(){
   function applyFastModeUI(){
     const fm = document.getElementById("inFastMode");
     const on = !!fm?.checked;
-    // In fast mode we simply auto-fill some fields and keep UI lean.
     document.body.classList.toggle("fast-mode", on);
   }
-
 
   function openDetails(id){
     const x=all.find(e=>e.id===id);
@@ -1438,7 +1358,6 @@ function openAdd(){
     const gs=$("#geoStatus"); if(gs) gs.textContent = selectedGeo ? `${selectedGeo.lat.toFixed(5)}, ${selectedGeo.lon.toFixed(5)}` : "—";
     $("#inPhoto").value="";
     setPhotoPreview(primaryPhoto(x) || null);
-    // preload multi-attachments (legacy photo remains supported)
     selectedPhotos = Array.isArray(x.photos) ? x.photos.slice() : (x.photo ? [x.photo] : []);
     selectedOriginals = Array.isArray(x.photosOriginal) ? x.photosOriginal.slice() : [];
     renderAttachmentsPreview();
@@ -1454,8 +1373,6 @@ function openAdd(){
     closeDetails();
     toast("Eliminata ✅");
     await refresh();
-    handleHashRoute();
-    window.addEventListener('hashchange', handleHashRoute);
   }
 
   async function duplicateCurrent(){
@@ -1464,14 +1381,13 @@ function openAdd(){
     if(!x) return;
     closeDetails();
     openAdd();
-    // prefill
     $("#inAmount").value = String((+x.amount||0).toFixed(2)).replace(".",",");
     $("#inDate").value = todayISO();
     $("#inCategory").value = x.category || "Alimentari";
     $("#inNote").value = (x.note||"");
     const t=$("#inTags"); if(t) t.value = Array.isArray(x.tags)? x.tags.join(", ") : "";
     const cur=$("#inCurrency"); if(cur) cur.value = (x.currency||settings.baseCurrency||"EUR");
-    const rec=$("#inRecurring"); if(rec) rec.value = ""; // duplicata non diventa template
+    const rec=$("#inRecurring"); if(rec) rec.value = "";
     selectedGeo = x.geo || null;
     const gs=$("#geoStatus"); if(gs) gs.textContent = selectedGeo ? `${selectedGeo.lat.toFixed(5)}, ${selectedGeo.lon.toFixed(5)}` : "—";
     selectedPhotos = Array.isArray(x.photos)? x.photos.slice(): (x.photo?[x.photo]:[]);
@@ -1532,7 +1448,7 @@ function openAdd(){
   }
   function closeBudgetModal(){ hideModal("#modalBudget"); }
 
-  // ---------------- ANALISI (GRAFICO) ----------------
+  // ---------------- ANALISI ----------------
   function groupByCategoryForMonth(month, onlyCaf){
     const map = new Map();
     for(const x of all){
@@ -1549,7 +1465,6 @@ function openAdd(){
     const c = document.querySelector("#anaCanvas");
     if(!c) return;
     const ctx = c.getContext("2d");
-    // Size canvas to current CSS width for crisp export
     const rect = c.getBoundingClientRect();
     const w = Math.max(1, Math.floor(rect.width || 600));
     const h = Math.max(1, Math.floor(rect.height || 240));
@@ -1558,8 +1473,6 @@ function openAdd(){
     c.height = Math.floor(h * dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,w,h);
-
-    // Background
     ctx.fillStyle = "#fff";
     ctx.fillRect(0,0,w,h);
 
@@ -1573,11 +1486,9 @@ function openAdd(){
     const padL = 10, padR = 10, padT = 14, padB = 18;
     const chartW = w - padL - padR;
     const chartH = h - padT - padB;
-
     const top = rows.slice(0, 8);
     const max = Math.max(1, ...top.map(r=>r.total||0));
 
-    // Axes
     ctx.strokeStyle = "#e5e7eb";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -1595,13 +1506,10 @@ function openAdd(){
       const bh = Math.round((v / max) * (chartH - 20));
       const x = padL + i*(barW + barGap);
       const y = padT + chartH - bh;
-
       ctx.fillStyle = "#111";
       ctx.globalAlpha = 0.12;
       ctx.fillRect(x, y, barW, bh);
       ctx.globalAlpha = 1;
-
-      // label (short)
       const lab = String(r.cat||"").slice(0, 10);
       ctx.fillStyle = "#111";
       ctx.globalAlpha = 0.85;
@@ -1655,74 +1563,65 @@ function openAdd(){
 
     renderAnalysisCanvas(rows);
   }
+
   // ---------------- SCANNER ----------------
+  async function autoCropScanner(){
+    if(!scanImg) throw new Error("no image");
+    const w0 = scanImg.naturalWidth || scanImg.width;
+    const h0 = scanImg.naturalHeight || scanImg.height;
+    const maxW = 420;
+    const sc = Math.min(1, maxW / Math.max(1,w0));
+    const cw = Math.max(1, Math.round(w0*sc));
+    const ch = Math.max(1, Math.round(h0*sc));
+    const c = document.createElement("canvas");
+    c.width = cw; c.height = ch;
+    const ctx = c.getContext("2d", {willReadFrequently:true});
+    ctx.drawImage(scanImg, 0,0, cw,ch);
+    const img = ctx.getImageData(0,0,cw,ch).data;
 
-async function autoCropScanner(){
-  if(!scanImg) throw new Error("no image");
-  // Downscale for speed
-  const w0 = scanImg.naturalWidth || scanImg.width;
-  const h0 = scanImg.naturalHeight || scanImg.height;
-  const maxW = 420;
-  const sc = Math.min(1, maxW / Math.max(1,w0));
-  const cw = Math.max(1, Math.round(w0*sc));
-  const ch = Math.max(1, Math.round(h0*sc));
-  const c = document.createElement("canvas");
-  c.width = cw; c.height = ch;
-  const ctx = c.getContext("2d", {willReadFrequently:true});
-  ctx.drawImage(scanImg, 0,0, cw,ch);
-  const img = ctx.getImageData(0,0,cw,ch).data;
-
-  // Simple edge detection: find bounding box of "not white" pixels.
-  // Threshold tuned for receipts with background/desk.
-  const thr = 245;
-  let minX=cw, minY=ch, maxX=0, maxY=0;
-  for(let y=0;y<ch;y++){
-    for(let x=0;x<cw;x++){
-      const i=(y*cw+x)*4;
-      const r=img[i], g=img[i+1], b=img[i+2];
-      // grayscale
-      const v = (r*0.299 + g*0.587 + b*0.114);
-      if(v < thr){
-        if(x<minX) minX=x;
-        if(y<minY) minY=y;
-        if(x>maxX) maxX=x;
-        if(y>maxY) maxY=y;
+    const thr = 245;
+    let minX=cw, minY=ch, maxX=0, maxY=0;
+    for(let y=0;y<ch;y++){
+      for(let x=0;x<cw;x++){
+        const i=(y*cw+x)*4;
+        const r=img[i], g=img[i+1], b=img[i+2];
+        const v = (r*0.299 + g*0.587 + b*0.114);
+        if(v < thr){
+          if(x<minX) minX=x;
+          if(y<minY) minY=y;
+          if(x>maxX) maxX=x;
+          if(y>maxY) maxY=y;
+        }
       }
     }
+    if(!(minX < maxX && minY < maxY)){
+      cropMargins = {l:2,r:2,t:2,b:2};
+    } else {
+      const pad = 8;
+      minX = Math.max(0, minX - pad);
+      minY = Math.max(0, minY - pad);
+      maxX = Math.min(cw-1, maxX + pad);
+      maxY = Math.min(ch-1, maxY + pad);
+
+      const leftPct = (minX / cw) * 100;
+      const rightPct = ((cw-1 - maxX) / cw) * 100;
+      const topPct = (minY / ch) * 100;
+      const botPct = ((ch-1 - maxY) / ch) * 100;
+
+      cropMargins = {
+        l: Math.max(0, Math.min(30, Math.round(leftPct))),
+        r: Math.max(0, Math.min(30, Math.round(rightPct))),
+        t: Math.max(0, Math.min(30, Math.round(topPct))),
+        b: Math.max(0, Math.min(30, Math.round(botPct))),
+      };
+    }
+
+    const set = (id,v)=>{ const el=document.getElementById(id); if(el) el.value=String(v); };
+    set("cropL", cropMargins.l);
+    set("cropR", cropMargins.r);
+    set("cropT", cropMargins.t);
+    set("cropB", cropMargins.b);
   }
-  // If nothing found, keep defaults
-  if(!(minX < maxX && minY < maxY)){
-    cropMargins = {l:2,r:2,t:2,b:2};
-  } else {
-    // Add padding (in scaled pixels)
-    const pad = 8;
-    minX = Math.max(0, minX - pad);
-    minY = Math.max(0, minY - pad);
-    maxX = Math.min(cw-1, maxX + pad);
-    maxY = Math.min(ch-1, maxY + pad);
-
-    // Convert to % margins for original image
-    const leftPct = (minX / cw) * 100;
-    const rightPct = ((cw-1 - maxX) / cw) * 100;
-    const topPct = (minY / ch) * 100;
-    const botPct = ((ch-1 - maxY) / ch) * 100;
-
-    // Clamp to UI ranges 0..30
-    cropMargins = {
-      l: Math.max(0, Math.min(30, Math.round(leftPct))),
-      r: Math.max(0, Math.min(30, Math.round(rightPct))),
-      t: Math.max(0, Math.min(30, Math.round(topPct))),
-      b: Math.max(0, Math.min(30, Math.round(botPct))),
-    };
-  }
-
-  // Reflect in sliders
-  const set = (id,v)=>{ const el=document.getElementById(id); if(el) el.value=String(v); };
-  set("cropL", cropMargins.l);
-  set("cropR", cropMargins.r);
-  set("cropT", cropMargins.t);
-  set("cropB", cropMargins.b);
-}
 
   function resetScanner(){
     scanRotate = 0;
@@ -1803,12 +1702,10 @@ async function autoCropScanner(){
     const note = ($("#inNote").value || "").trim();
     const file = (window.__sspReceipt?.file) || ($("#inPhoto").files && $("#inPhoto").files[0]);
 
-    // Auto-OCR: se c'è una foto e importo/data non sono validi, prova prima di salvare
     if((!Number.isFinite(amountVal) || amountVal<=0 || !dateVal) && file && window.__sspReceipt?.handle){
       try{ await window.__sspReceipt.handle(file, "autosave"); }catch(e){}
     }
 
-    // Rilegge i campi dopo eventuale OCR
     amountVal = parseEuro($("#inAmount").value);
     dateVal = $("#inDate").value;
 
@@ -1817,7 +1714,6 @@ async function autoCropScanner(){
 
     const amount = amountVal;
     const date = dateVal;
-
 
     if(!settings.isPro && !editId && all.length >= APP.freeLimitExpenses){
       alert(`Versione FREE: massimo ${APP.freeLimitExpenses} spese. Attiva PRO per illimitate.`);
@@ -1830,7 +1726,6 @@ async function autoCropScanner(){
     let photos = base ? (Array.isArray(base.photos) ? base.photos.slice() : (base.photo ? [base.photo] : [])) : [];
     let photosOriginal = base ? (Array.isArray(base.photosOriginal) ? base.photosOriginal.slice() : []) : [];
 
-    // If user selected attachments in this session, they win
     if(Array.isArray(selectedPhotos) && selectedPhotos.length){
       photos = selectedPhotos.slice();
     }else if(previewPhoto){
@@ -1867,7 +1762,7 @@ async function autoCropScanner(){
       tags,
       geo: selectedGeo,
       recurring: recurring ? { freq: recurring, startDate: date } : null,
-      photo, // legacy primary photo for backward compat
+      photo,
       photos,
       photosOriginal: (settings.saveOriginals ? photosOriginal : [])
     };
@@ -2011,9 +1906,8 @@ async function autoCropScanner(){
     toast("PDF creato ✅");
   }
 
-  // ---------------- COMMERCIALISTA (PACCHETTO: CSV + PDF + opz. foto) ----------------
+  // ---------------- COMMERCIALISTA ----------------
   function firstDayOfMonth(ym){
-    // ym: YYYY-MM
     const [y,m] = String(ym||'').split('-').map(Number);
     if(!y || !m) return null;
     return `${y}-${pad2(m)}-01`;
@@ -2031,7 +1925,6 @@ async function autoCropScanner(){
     return isNaN(+d) ? null : d;
   }
   function inRangeISO(iso, fromISO, toISO){
-    // inclusive
     const d = isoToDate(iso);
     const f = isoToDate(fromISO);
     const t = isoToDate(toISO);
@@ -2039,7 +1932,6 @@ async function autoCropScanner(){
     return d >= f && d <= t;
   }
   function moneyCsv(v){
-    // Italian-friendly: decimal comma
     const n = Number(v||0);
     return n.toFixed(2).replace('.', ',');
   }
@@ -2117,13 +2009,11 @@ async function autoCropScanner(){
       y+=14;
     }
 
-    // return blob
     const blob = doc.output('blob');
     return blob;
   }
 
   async function shareOrDownloadFiles(files, title){
-    // Try native share (Android). If not available, download.
     try{
       if(navigator.share && navigator.canShare){
         const can = navigator.canShare({ files });
@@ -2133,9 +2023,8 @@ async function autoCropScanner(){
           return;
         }
       }
-    }catch(e){ /* ignore */ }
+    }catch(e){}
 
-    // Fallback: download all
     for(const f of files){
       try{
         const url = URL.createObjectURL(f);
@@ -2146,7 +2035,7 @@ async function autoCropScanner(){
         a.click();
         a.remove();
         setTimeout(()=>URL.revokeObjectURL(url), 800);
-      }catch(e){ /* ignore */ }
+      }catch(e){}
     }
     toast("File pronti ✅");
   }
@@ -2156,9 +2045,9 @@ async function autoCropScanner(){
 
     const fromISO = opts?.from;
     const toISO = opts?.to;
-    const mode = 'caf'; // 730 automatico: solo detraibili
-    const pack = 'zip'; // pacchetto automatico
-    const includePhotos = false; // mai includere foto scontrini nel 730
+    const mode = 'caf';
+    const pack = 'zip';
+    const includePhotos = false;
 
     if(!isoToDate(fromISO) || !isoToDate(toISO)){
       toast("Date non valide");
@@ -2177,18 +2066,15 @@ async function autoCropScanner(){
     const rangeLabel = `Periodo: ${fromISO} → ${toISO}`;
     const titleLabel = mode === 'caf' ? 'Report 730 (solo detraibili)' : 'Report completo (commercialista)';
 
-    // CSV
     const csvText = buildCsv(list);
     const csvBlob = new Blob(["\ufeff" + csvText], {type:'text/csv;charset=utf-8'});
     const csvFile = new File([csvBlob], `Spese_${fromISO}_${toISO}.csv`, {type: csvBlob.type});
 
-    // PDF
     const pdfBlob = await buildPdfBlobFromList(mode, titleLabel, rangeLabel, list);
     if(!pdfBlob){ toast("PDF non disponibile"); return; }
     const pdfName = mode==='caf' ? `Report_730_${fromISO}_${toISO}.pdf` : `Report_${fromISO}_${toISO}.pdf`;
     const pdfFile = new File([pdfBlob], pdfName, {type:'application/pdf'});
 
-    // ZIP (optional)
     if(pack === 'zip'){
       const JSZip = window.JSZip;
       if(!JSZip){
@@ -2197,7 +2083,6 @@ async function autoCropScanner(){
         return;
       }
       const zip = new JSZip();
-      const base = `Commercialista_${fromISO}_${toISO}`;
       zip.file(csvFile.name, csvBlob);
       zip.file(pdfFile.name, pdfBlob);
 
@@ -2220,9 +2105,9 @@ async function autoCropScanner(){
       return;
     }
 
-    // Files separati
     await shareOrDownloadFiles([csvFile, pdfFile], 'Commercialista');
   }
+
   // ---------------- BACKUP ----------------
   async function exportBackup(){
     const payload = {
@@ -2324,13 +2209,11 @@ async function autoCropScanner(){
         const text = await performOcr(file, signal);
         if (signal.aborted) return;
   
-        // Update OCR text panel
         const ocrPanel = document.getElementById('ocrPanel');
         const ocrTextarea = document.getElementById('ocrText');
         if (ocrPanel) ocrPanel.style.display = 'block';
         if (ocrTextarea) ocrTextarea.value = text;
   
-        // Parse amount and date
         const normalized = normalizeForRegex(text);
         const amount = parseAmountFromOcr(normalized);
         const date = parseDateFromOcr(normalized);
@@ -2342,7 +2225,6 @@ async function autoCropScanner(){
           document.getElementById('inDate').value = date;
         }
   
-        // Trigger auto-save event if reason allows
         if (reason !== 'manual') {
           window.dispatchEvent(new CustomEvent('ssp:ocr-filled'));
         }
@@ -2365,7 +2247,6 @@ async function autoCropScanner(){
           return await performTesseractOcr(file, signal);
         } catch (err) {
           if (mode === 'auto' && apiKey) {
-            // fallback to online
             return await performOcrSpace(file, apiKey, endpoint, signal);
           } else {
             throw err;
@@ -2410,7 +2291,6 @@ async function autoCropScanner(){
     }
   
     function parseAmountFromOcr(text) {
-      // Cerca pattern come "TOTAL: 12,50" o "€ 12.50" o "12.50" con parole chiave
       const patterns = [
         /(?:totale|importo|total|amount|€|eur)\s*[:]?\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)/i,
         /(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)\s*(?:€|eur|euro)/i,
@@ -2427,7 +2307,6 @@ async function autoCropScanner(){
     }
   
     function parseDateFromOcr(text) {
-      // Cerca date in formato dd/mm/yyyy, dd-mm-yyyy, yyyy-mm-dd
       const patterns = [
         /(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})/,
         /(\d{4})[\/\-\.](\d{2})[\/\-\.](\d{2})/,
@@ -2435,9 +2314,9 @@ async function autoCropScanner(){
       for (const pat of patterns) {
         const m = text.match(pat);
         if (m) {
-          if (m[1].length === 4) { // yyyy-mm-dd
+          if (m[1].length === 4) {
             return `${m[1]}-${m[2]}-${m[3]}`;
-          } else { // dd-mm-yyyy
+          } else {
             return `${m[3]}-${m[2]}-${m[1]}`;
           }
         }
@@ -2460,8 +2339,7 @@ async function autoCropScanner(){
     const key = settings.ocrSpaceKey || '';
     if (!key) return { ok: false, error: 'Chiave non inserita' };
     const endpoint = settings.ocrEndpoint || 'https://api.ocr.space/parse/image';
-    // Use a tiny test image (base64 of a simple text)
-    const testImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAAAlwSFlzAAAOwgAADsIBFShKgAAAABh0RVh0U29mdHdhcmUAcGFpbnQubmV0IDQuMC4zjOaXUAAAANpJREFUOE+lk7ENgzAQRZ2iYAKKjEAHVMxAwzJ0bMAU0LECY7ABW1Ckg4SUiI+7yM6TLSFZ8vf7fufYwTjn3gC2JEmuYRiuxhhjAQCQZdlNCOE7TdMniqIHEKkFANR1beM4/pzHca5pmj4AIIoiG4bhMwzDxzRNH0VRnFLqBWBZFrMsy+fneZ5TSt0YY+2yLMYYY+y2bXae58YYY9d1tXEc2+fzadtg2za7bZudc86u62pzzsYYY23btmY2Y4y1bdtZzszmnL0xxlrrnDXGWOucnZndGGOtdfZf8A1Ny5A6f/Zv1gAAAABJRU5ErkJggg=='; // small receipt icon
+    const testImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAAAlwSFlzAAAOwgAADsIBFShKgAAAABh0RVh0U29mdHdhcmUAcGFpbnQubmV0IDQuMC4zjOaXUAAAANpJREFUOE+lk7ENgzAQRZ2iYAKKjEAHVMxAwzJ0bMAU0LECY7ABW1Ckg4SUiI+7yM6TLSFZ8vf7fufYwTjn3gC2JEmuYRiuxhhjAQCQZdlNCOE7TdMniqIHEKkFANR1beM4/pzHca5pmj4AIIoiG4bhMwzDxzRNH0VRnFLqBWBZFrMsy+fneZ5TSt0YY+2yLMYYY+y2bXae58YYY9d1tXEc2+fzadtg2za7bZudc86u62pzzsYYY23btmY2Y4y1bdtZzszmnL0xxlrrnDXGWOucnZndGGOtdfZf8A1Ny5A6f/Zv1gAAAABJRU5ErkJggg==';
     const blob = await (await fetch(testImage)).blob();
     const formData = new FormData();
     formData.append('file', blob, 'test.png');
@@ -2477,6 +2355,27 @@ async function autoCropScanner(){
     } catch (err) {
       return { ok: false, error: err.message };
     }
+  }
+
+  // ===================== FUNZIONE PER IMPORTARE PDF (prima pagina in PNG) =====================
+  async function pdfFirstPageToPngFile(pdfFile) {
+    if (!window.pdfjsLib) throw new Error('pdf.js non caricato');
+    const arrayBuffer = await pdfFile.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 1.5 });
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const renderContext = {
+      canvasContext: context,
+      viewport: viewport,
+    };
+    await page.render(renderContext).promise;
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    const blob = await (await fetch(dataUrl)).blob();
+    return new File([blob], 'pdf_page.jpg', { type: 'image/jpeg' });
   }
 
   // ---------------- EVENTS ----------------
@@ -2528,11 +2427,10 @@ async function autoCropScanner(){
 
     $("#fabCam").addEventListener("click", ()=>{
       openAdd();
-      // open camera chooser inside Add modal
       setTimeout(()=>{ try { $("#btnReceiptCamera").click(); } catch(e){} }, 120);
     });
 
-$("#addClose").addEventListener("click", closeAdd);
+    $("#addClose").addEventListener("click", closeAdd);
     $("#modalAdd").addEventListener("click", (e)=>{ if(e.target===$("#modalAdd")) closeAdd(); });
 
     on("#btnGeo","click", ()=>{ try{ captureGeo(); }catch(e){ console.error(e); } });
@@ -2541,7 +2439,6 @@ $("#addClose").addEventListener("click", closeAdd);
     $("#inPhoto").addEventListener("change", async (e)=>{
       try{
         const files = e.target.files;
-        // append multi-selection in one shot
         await handleSelectedImages(files);
       }catch(err){
         console.error(err);
@@ -2549,7 +2446,6 @@ $("#addClose").addEventListener("click", closeAdd);
       }
     });
 
-    // Camera input (capture) + dedicated button
     const inPhotoCam = $("#inPhotoCam");
     const btnReceiptCamera = $("#btnReceiptCamera");
     if(btnReceiptCamera && inPhotoCam){
@@ -2565,14 +2461,11 @@ $("#addClose").addEventListener("click", closeAdd);
       });
     }
 
-    // Gallery button (uses the normal file input)
     const btnReceiptGallery = $("#btnReceiptGallery");
     if(btnReceiptGallery && $("#inPhoto")){
       btnReceiptGallery.addEventListener("click", ()=> { const inp=$("#inPhoto"); if(inp) inp.value=""; inp.click(); });
     }
 
-
-    // PDF import button (renders 1st page → PNG → OCR)
     const btnReceiptPdf = $("#btnReceiptPdf");
     const inPdf = $("#inPdf");
     if(btnReceiptPdf && inPdf){
@@ -2599,8 +2492,6 @@ $("#addClose").addEventListener("click", closeAdd);
             window.__sspReceipt.getLastFile = () => pngFile;
           }
           toast("PDF importato ✅ (1ª pagina)");
-
-          // OCR: una sola volta, dopo import
           try{ await window.__sspReceipt?.handle?.(pngFile, "pdf"); }catch(_){}
         }catch(err){
           console.error(err);
@@ -2609,8 +2500,6 @@ $("#addClose").addEventListener("click", closeAdd);
       });
     }
 
-
-    // Remove photo (support both legacy id and current button id)
     const btnRemove = $("#removePhoto") || $("#btnRemovePhoto");
     if(btnRemove) btnRemove.addEventListener("click", ()=>{
       $("#inPhoto").value="";
@@ -2636,13 +2525,11 @@ $("#addClose").addEventListener("click", closeAdd);
     $("#btnOpenScanner").addEventListener("click", async ()=>{
       const file = (window.__sspReceipt?.getLastFile && window.__sspReceipt.getLastFile()) || ($("#inPhoto").files && $("#inPhoto").files[0]) || ($("#inPhotoCam").files && $("#inPhotoCam").files[0]);
       if(!file){ toast("Prima seleziona una foto"); return; }
-      try{ await window.__sspReceipt.handle(file, "manual"); }catch(e){ /* handled inside */ }
+      try{ await window.__sspReceipt.handle(file, "manual"); }catch(e){}
     });
 
-    // optional: miglioramento foto (scanner) separato
     const btnEnh = $("#btnEnhancePhoto");
     if(btnEnh) btnEnh.addEventListener("click", openScanner);
-
 
     $("#scannerClose").addEventListener("click", closeScanner);
     $("#modalScanner").addEventListener("click",(e)=>{ if(e.target===$("#modalScanner")) closeScanner(); });
@@ -2669,17 +2556,15 @@ $("#addClose").addEventListener("click", closeAdd);
 
     $("#btnSave").addEventListener("click", onSave);
 
-    // Auto-salva dopo OCR (antibug): se attivo nelle Impostazioni, quando OCR compila importo+data
-    // clicchiamo "Salva" in modo sicuro (solo se il modal è aperto e non siamo in modifica).
     let __autoSaveLock = 0;
     window.addEventListener('ssp:ocr-filled', ()=>{
       try{
         if(!settings || !settings.ocrAutoSave) return;
         const modal = $("#modalAdd");
         if(!modal || !modal.classList || !modal.classList.contains('show')) return;
-        if(editId) return; // non auto-salvare in modifica
+        if(editId) return;
         const now = Date.now();
-        if(now - __autoSaveLock < 2500) return; // anti-doppio-salvataggio
+        if(now - __autoSaveLock < 2500) return;
 
         const amt = parseEuro($("#inAmount")?.value);
         const dt = String($("#inDate")?.value || "").trim();
@@ -2689,8 +2574,9 @@ $("#addClose").addEventListener("click", closeAdd);
         __autoSaveLock = now;
         const b = $("#btnSave");
         if(b) b.click();
-      }catch(_){ /* never block */ }
+      }catch(_){}
     }, {passive:true});
+
     $("#btnClear").addEventListener("click", ()=>{
       $("#inAmount").value="";
       $("#inNote").value="";
@@ -2750,7 +2636,6 @@ $("#addClose").addEventListener("click", closeAdd);
       generatePdf(mode, m);
     });
 
-    // --- Invia al commercialista (pacchetto) ---
     on("#btnSendAccountant", "click", ()=>{
       try{
         const ym = $("#rMonth")?.value || monthNow();
@@ -2784,7 +2669,6 @@ $("#addClose").addEventListener("click", closeAdd);
     on("#accSend", "click", async ()=>{
       const from = $("#accFrom")?.value;
       const to = $("#accTo")?.value;
-      // 730 automatico: invia solo CSV+PDF detraibili, senza foto scontrini
       await sendToAccountant({from, to, mode:'caf', pack:'zip', includePhotos:false});
     });
 
@@ -2804,7 +2688,6 @@ $("#addClose").addEventListener("click", closeAdd);
 
     $("#btnWipeAll").addEventListener("click", wipeAll);
 
-    // Nuovi listener per fotocamera automatica
     on("#btnReceiptCameraAuto", "click", openAutoCamera);
     on("[data-cam-auto-close]", "click", () => {
       if (autoCamStream) {
@@ -2814,11 +2697,9 @@ $("#addClose").addEventListener("click", closeAdd);
       hideModal('#camAutoModal');
     });
     on("#camAutoShotManual", "click", () => {
-      // Scatta manualmente
       captureAutoFrame();
     });
     on("#camAutoSwitch", "click", () => {
-      // Cambia camera (semplice toggle tra front/back - implementazione base)
       if (autoCamStream) {
         const track = autoCamStream.getVideoTracks()[0];
         if (track) {
@@ -2848,7 +2729,6 @@ $("#addClose").addEventListener("click", closeAdd);
     wire();
     showPage("home");
     
-    // Onboarding guidato (prima volta)
     if (!localStorage.getItem('onboarding_done')) {
       setTimeout(() => {
         if (typeof window.driver !== 'undefined') {
