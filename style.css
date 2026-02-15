@@ -2357,3 +2357,88 @@ main, .content, .page, .app, #app{
 .attachGrid .att{width:70px;height:70px;border-radius:12px;overflow:hidden;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;position:relative}
 .attachGrid .att img{width:100%;height:100%;object-fit:cover;display:block}
 .attachGrid .att .x{position:absolute;top:4px;right:4px;border:none;background:rgba(0,0,0,.55);color:#fff;border-radius:999px;width:22px;height:22px;line-height:22px;font-size:12px}
+
+/* =========================
+   NUOVE REGOLE PER FOTOCAMERA AUTOMATICA
+   ========================= */
+#camAutoVideo {
+  width: 100%;
+  border-radius: 14px;
+  background: #000;
+  max-height: 60vh;
+  object-fit: cover;
+}
+#camAutoStatus {
+  align-self: center;
+  font-size: 12px;
+}
+
+/* =========================
+   MIGLIORAMENTI MODALITÀ SEMPLICE
+   ========================= */
+body.ssp-simple .adv-field,
+body.ssp-simple [data-adv] {
+  display: none !important;
+}
+body.ssp-simple #inTags,
+body.ssp-simple #inCurrency,
+body.ssp-simple #inRecurring,
+body.ssp-simple #btnGeo,
+body.ssp-simple #geoStatus,
+body.ssp-simple #inFastMode {
+  display: none !important;
+}
+body.ssp-simple .receiptActions .btn:not(#btnReceiptCameraAuto):not(#btnReceiptCamera):not(#btnReceiptGallery) {
+  display: none !important;
+}
+
+/* =========================
+   NUOVI FAB CON TESTO
+   ========================= */
+/* Stile aggiornato per i FAB */
+.fab {
+  position: fixed;
+  bottom: calc(92px + env(safe-area-inset-bottom));
+  width: 70px;
+  height: 70px;
+  border-radius: 18px;
+  border: 1px solid rgba(91,140,255,.45);
+  background: linear-gradient(135deg, rgba(91,140,255,.95), rgba(61,220,151,.70));
+  color: white;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: transform 0.1s ease;
+}
+.fab:active {
+  transform: translateY(2px);
+}
+.fab-icon {
+  font-size: 26px;
+  line-height: 1;
+  color: #0b0f17; /* colore scuro per contrasto */
+}
+.fab-label {
+  font-size: 10px;
+  margin-top: 2px;
+  font-weight: 700;
+  color: #0b0f17;
+  text-shadow: 0 1px 1px rgba(255,255,255,0.3);
+}
+
+/* Posizionamento centrato sopra la bottom nav */
+#fabAdd {
+  left: calc(50% - 45px);
+  right: auto;
+  transform: translateX(-50%);
+}
+#fabCam {
+  left: calc(50% + 45px);
+  right: auto;
+  transform: translateX(-50%);
+}
