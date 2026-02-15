@@ -1,4 +1,4 @@
-// === app.js - VERSIONE COMPLETA E DEFINITIVA ===
+// === app.js - VERSIONE FINALE COMPLETA (con avvio robusto) ===
 (function() {
   "use strict";
 
@@ -2003,369 +2003,395 @@ NEWFILEUID:NONE
     }
   }
 
-  // ===================== AVVIO =====================
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=37.2").catch(() => { }));
-  }
-
-  (async function start() {
+  // ===================== AVVIO ROBUSTO =====================
+  function startApp() {
     console.log("Avvio applicazione...");
     fillCategories();
     $("#inDate").value = todayISO();
     $("#fMonth").value = monthNow();
     setProUI();
 
-    await openDB();
-    await refresh();
+    openDB().then(async () => {
+      await refresh();
+      attachEventListeners();
+      toast('App pronta');
+    }).catch(err => {
+      console.error("Errore apertura DB", err);
+      toast("Errore database, ricarica la pagina");
+    });
+  }
 
-    // Attacca tutti i listener dopo che il DB è pronto
-    document.addEventListener('DOMContentLoaded', function() {
-      // FAB Aggiungi spesa
-      $('#fabAdd')?.addEventListener('click', (e) => { e.preventDefault(); openAdd(); });
-      $('#fabCam')?.addEventListener('click', (e) => { e.preventDefault(); openAdd(); setTimeout(() => { try { $('#btnReceiptCamera')?.click(); } catch (_) { } }, 120); });
+  function attachEventListeners() {
+    console.log("Attacco listener...");
 
-      // Chiudi modale
-      $('#addClose')?.addEventListener('click', closeAdd);
-      $('#modalAdd')?.addEventListener('click', (e) => { if (e.target === $('#modalAdd')) closeAdd(); });
+    // FAB Aggiungi spesa
+    $('#fabAdd')?.addEventListener('click', (e) => { e.preventDefault(); openAdd(); });
+    $('#fabCam')?.addEventListener('click', (e) => { e.preventDefault(); openAdd(); setTimeout(() => { try { $('#btnReceiptCamera')?.click(); } catch (_) { } }, 120); });
 
-      // Geolocalizzazione
-      $('#btnGeo')?.addEventListener('click', () => { try { captureGeo(); } catch (e) { console.error(e); } });
+    // Chiudi modale
+    $('#addClose')?.addEventListener('click', closeAdd);
+    $('#modalAdd')?.addEventListener('click', (e) => { if (e.target === $('#modalAdd')) closeAdd(); });
 
-      // Fast mode
-      $('#inFastMode')?.addEventListener('change', applyFastModeUI);
+    // Geolocalizzazione
+    $('#btnGeo')?.addEventListener('click', () => { try { captureGeo(); } catch (e) { console.error(e); } });
 
-      // Selezione foto
-      $('#inPhoto')?.addEventListener('change', async (e) => { try { await handleFile(e.target.files?.[0]); } catch (err) { console.error(err); toast("Errore caricamento foto"); } });
-      const btnCamera = $('#btnReceiptCamera');
-      const inPhotoCam = $('#inPhotoCam');
-      if (btnCamera && inPhotoCam) {
-        btnCamera.addEventListener('click', () => { inPhotoCam.value = ''; inPhotoCam.click(); });
-        inPhotoCam.addEventListener('change', async (e) => { try { await handleFile(e.target.files?.[0]); } catch (err) { console.error(err); toast("Errore caricamento foto"); } });
-      }
-      const btnGallery = $('#btnReceiptGallery');
-      const inPhoto = $('#inPhoto');
-      if (btnGallery && inPhoto) {
-        btnGallery.addEventListener('click', () => { inPhoto.value = ''; inPhoto.click(); });
-        inPhoto.addEventListener('change', async (e) => { try { await handleFile(e.target.files?.[0]); } catch (err) { console.error(err); toast("Errore caricamento foto"); } });
-      }
+    // Fast mode
+    $('#inFastMode')?.addEventListener('change', applyFastModeUI);
 
-      // PDF import
-      const btnPdf = $('#btnReceiptPdf');
-      const inPdf = $('#inPdf');
-      if (btnPdf && inPdf) {
-        btnPdf.addEventListener('click', () => { try { inPdf.value = ''; } catch (_) { } inPdf.click(); });
-        inPdf.addEventListener('change', async (e) => {
-          const file = e.target.files?.[0];
-          if (!file) { toast("Nessun PDF selezionato"); return; }
-          try {
-            toast("Importo PDF…");
-            const pngFile = await pdfFirstPageToPngFile(file);
-            scanImg = await fileToImage(pngFile);
-            const quick = await imageToDataUrl(scanImg, 0, null, 1.0, 0);
-            setPhotoPreview(quick);
-            selectedPhotos = [quick];
-            selectedOriginals = settings.saveOriginals ? [quick] : [];
-            renderAttachmentsPreview();
-            previewPhoto = quick;
-            if (window.__sspReceipt) {
-              window.__sspReceipt.file = pngFile;
-              window.__sspReceipt.getLastFile = () => pngFile;
-            }
-            toast("PDF importato ✅ (1ª pagina)");
-            try { await window.__sspReceipt?.handle?.(pngFile, "pdf"); } catch (_) { }
-          } catch (err) { console.error(err); toast("PDF non valido / non leggibile"); }
-        });
-      }
+    // Selezione foto
+    $('#inPhoto')?.addEventListener('change', async (e) => { try { await handleFile(e.target.files?.[0]); } catch (err) { console.error(err); toast("Errore caricamento foto"); } });
+    const btnCamera = $('#btnReceiptCamera');
+    const inPhotoCam = $('#inPhotoCam');
+    if (btnCamera && inPhotoCam) {
+      btnCamera.addEventListener('click', () => { inPhotoCam.value = ''; inPhotoCam.click(); });
+      inPhotoCam.addEventListener('change', async (e) => { try { await handleFile(e.target.files?.[0]); } catch (err) { console.error(err); toast("Errore caricamento foto"); } });
+    }
+    const btnGallery = $('#btnReceiptGallery');
+    const inPhoto = $('#inPhoto');
+    if (btnGallery && inPhoto) {
+      btnGallery.addEventListener('click', () => { inPhoto.value = ''; inPhoto.click(); });
+      inPhoto.addEventListener('change', async (e) => { try { await handleFile(e.target.files?.[0]); } catch (err) { console.error(err); toast("Errore caricamento foto"); } });
+    }
 
-      // Rimuovi foto
-      const btnRemove = $('#removePhoto') || $('#btnRemovePhoto');
-      if (btnRemove) {
-        btnRemove.addEventListener('click', () => {
-          $('#inPhoto').value = '';
-          $('#inPhotoCam').value = '';
-          setPhotoPreview(null);
-          selectedPhotos = [];
-          selectedOriginals = [];
-          selectedGeo = null;
-          scanImg = null;
-          try { window.__sspReceipt?.cancelOcr?.(); } catch { }
-          try { const p = document.getElementById("ocrPanel"); if (p) p.style.display = "none"; } catch { }
-          try { const t = document.getElementById("ocrText"); if (t) t.value = ""; } catch { }
-          try { const s = document.getElementById("ocrStatus"); if (s) s.textContent = ""; } catch { }
-          if (window.__sspReceipt) { window.__sspReceipt.file = null; window.__sspReceipt.getLastFile = () => null; }
-          toast("Foto rimossa");
-        });
-      }
-
-      // OCR manuale
-      $('#btnOpenScanner')?.addEventListener('click', async () => {
-        const file = (window.__sspReceipt?.getLastFile && window.__sspReceipt.getLastFile()) || ($('#inPhoto').files && $('#inPhoto').files[0]) || ($('#inPhotoCam').files && $('#inPhotoCam').files[0]);
-        if (!file) { toast("Prima seleziona una foto"); return; }
-        try { await window.__sspReceipt.handle(file, "manual"); } catch (e) { }
+    // PDF import
+    const btnPdf = $('#btnReceiptPdf');
+    const inPdf = $('#inPdf');
+    if (btnPdf && inPdf) {
+      btnPdf.addEventListener('click', () => { try { inPdf.value = ''; } catch (_) { } inPdf.click(); });
+      inPdf.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) { toast("Nessun PDF selezionato"); return; }
+        try {
+          toast("Importo PDF…");
+          const pngFile = await pdfFirstPageToPngFile(file);
+          scanImg = await fileToImage(pngFile);
+          const quick = await imageToDataUrl(scanImg, 0, null, 1.0, 0);
+          setPhotoPreview(quick);
+          selectedPhotos = [quick];
+          selectedOriginals = settings.saveOriginals ? [quick] : [];
+          renderAttachmentsPreview();
+          previewPhoto = quick;
+          if (window.__sspReceipt) {
+            window.__sspReceipt.file = pngFile;
+            window.__sspReceipt.getLastFile = () => pngFile;
+          }
+          toast("PDF importato ✅ (1ª pagina)");
+          try { await window.__sspReceipt?.handle?.(pngFile, "pdf"); } catch (_) { }
+        } catch (err) { console.error(err); toast("PDF non valido / non leggibile"); }
       });
+    }
 
-      // Migliora foto
-      $('#btnEnhancePhoto')?.addEventListener('click', async () => {
-        if (!scanImg) { toast("Prima seleziona una foto"); return; }
-        resetScanner();
-        showModal("#modalScanner");
+    // Rimuovi foto
+    const btnRemove = $('#removePhoto') || $('#btnRemovePhoto');
+    if (btnRemove) {
+      btnRemove.addEventListener('click', () => {
+        $('#inPhoto').value = '';
+        $('#inPhotoCam').value = '';
+        setPhotoPreview(null);
+        selectedPhotos = [];
+        selectedOriginals = [];
+        selectedGeo = null;
+        scanImg = null;
+        try { window.__sspReceipt?.cancelOcr?.(); } catch { }
+        try { const p = document.getElementById("ocrPanel"); if (p) p.style.display = "none"; } catch { }
+        try { const t = document.getElementById("ocrText"); if (t) t.value = ""; } catch { }
+        try { const s = document.getElementById("ocrStatus"); if (s) s.textContent = ""; } catch { }
+        if (window.__sspReceipt) { window.__sspReceipt.file = null; window.__sspReceipt.getLastFile = () => null; }
+        toast("Foto rimossa");
+      });
+    }
+
+    // OCR manuale
+    $('#btnOpenScanner')?.addEventListener('click', async () => {
+      const file = (window.__sspReceipt?.getLastFile && window.__sspReceipt.getLastFile()) || ($('#inPhoto').files && $('#inPhoto').files[0]) || ($('#inPhotoCam').files && $('#inPhotoCam').files[0]);
+      if (!file) { toast("Prima seleziona una foto"); return; }
+      try { await window.__sspReceipt.handle(file, "manual"); } catch (e) { }
+    });
+
+    // Migliora foto
+    $('#btnEnhancePhoto')?.addEventListener('click', async () => {
+      if (!scanImg) { toast("Prima seleziona una foto"); return; }
+      resetScanner();
+      showModal("#modalScanner");
+      await drawScannerPreview();
+    });
+
+    // Scanner modale
+    $('#scannerClose')?.addEventListener('click', () => hideModal('#modalScanner'));
+    $('#modalScanner')?.addEventListener('click', (e) => { if (e.target === $('#modalScanner')) hideModal('#modalScanner'); });
+    $('#rotL')?.addEventListener('click', async () => { scanRotate = (scanRotate - 90) % 360; await drawScannerPreview(); });
+    $('#rotR')?.addEventListener('click', async () => { scanRotate = (scanRotate + 90) % 360; await drawScannerPreview(); });
+    ['scanContrast', 'scanBright', 'cropL', 'cropR', 'cropT', 'cropB'].forEach(id => {
+      $('#' + id)?.addEventListener('input', async () => {
+        scanContrast = parseFloat($("#scanContrast").value);
+        scanBright = parseFloat($("#scanBright").value);
+        cropMargins.l = parseFloat($("#cropL").value);
+        cropMargins.r = parseFloat($("#cropR").value);
+        cropMargins.t = parseFloat($("#cropT").value);
+        cropMargins.b = parseFloat($("#cropB").value);
         await drawScannerPreview();
       });
+    });
+    $('#resetScan')?.addEventListener('click', async () => { resetScanner(); await drawScannerPreview(); });
+    $('#autoCrop')?.addEventListener('click', async () => { try { await autoCropScanner(); await drawScannerPreview(); toast("Auto ritaglio ✅"); } catch (e) { console.error(e); toast("Auto ritaglio non riuscito"); } });
+    $('#applyScan')?.addEventListener('click', applyScanner);
 
-      // Scanner modale
-      $('#scannerClose')?.addEventListener('click', () => hideModal('#modalScanner'));
-      $('#modalScanner')?.addEventListener('click', (e) => { if (e.target === $('#modalScanner')) hideModal('#modalScanner'); });
-      $('#rotL')?.addEventListener('click', async () => { scanRotate = (scanRotate - 90) % 360; await drawScannerPreview(); });
-      $('#rotR')?.addEventListener('click', async () => { scanRotate = (scanRotate + 90) % 360; await drawScannerPreview(); });
-      ['scanContrast', 'scanBright', 'cropL', 'cropR', 'cropT', 'cropB'].forEach(id => {
-        $('#' + id)?.addEventListener('input', async () => {
-          scanContrast = parseFloat($("#scanContrast").value);
-          scanBright = parseFloat($("#scanBright").value);
-          cropMargins.l = parseFloat($("#cropL").value);
-          cropMargins.r = parseFloat($("#cropR").value);
-          cropMargins.t = parseFloat($("#cropT").value);
-          cropMargins.b = parseFloat($("#cropB").value);
-          await drawScannerPreview();
-        });
-      });
-      $('#resetScan')?.addEventListener('click', async () => { resetScanner(); await drawScannerPreview(); });
-      $('#autoCrop')?.addEventListener('click', async () => { try { await autoCropScanner(); await drawScannerPreview(); toast("Auto ritaglio ✅"); } catch (e) { console.error(e); toast("Auto ritaglio non riuscito"); } });
-      $('#applyScan')?.addEventListener('click', applyScanner);
+    // Salva
+    $('#btnSave')?.addEventListener('click', onSave);
 
-      // Salva
-      $('#btnSave')?.addEventListener('click', onSave);
+    // Pulisci
+    $('#btnClear')?.addEventListener('click', () => {
+      $('#inAmount').value = '';
+      $('#inNote').value = '';
+      $('#inPhoto').value = '';
+      previewPhoto = null;
+      scanImg = null;
+      setPhotoPreview(null);
+      toast("Pulito");
+    });
 
-      // Pulisci
-      $('#btnClear')?.addEventListener('click', () => {
-        $('#inAmount').value = '';
-        $('#inNote').value = '';
-        $('#inPhoto').value = '';
-        previewPhoto = null;
-        scanImg = null;
-        setPhotoPreview(null);
-        toast("Pulito");
-      });
+    // Dettagli
+    $('#mClose')?.addEventListener('click', closeDetails);
+    $('#modalDetails')?.addEventListener('click', (e) => { if (e.target === $('#modalDetails')) closeDetails(); });
+    $('#mEdit')?.addEventListener('click', openEdit);
+    $('#mDuplicate')?.addEventListener('click', duplicateCurrent);
+    $('#mDelete')?.addEventListener('click', deleteCurrent);
 
-      // Dettagli
-      $('#mClose')?.addEventListener('click', closeDetails);
-      $('#modalDetails')?.addEventListener('click', (e) => { if (e.target === $('#modalDetails')) closeDetails(); });
-      $('#mEdit')?.addEventListener('click', openEdit);
-      $('#mDuplicate')?.addEventListener('click', duplicateCurrent);
-      $('#mDelete')?.addEventListener('click', deleteCurrent);
+    // Budget
+    $('#btnBudget')?.addEventListener('click', openBudgetModal);
+    $('#budgetClose')?.addEventListener('click', closeBudgetModal);
+    $('#modalBudget')?.addEventListener('click', (e) => { if (e.target === $('#modalBudget')) closeBudgetModal(); });
+    $('#budgetSave')?.addEventListener('click', () => {
+      const m = $("#fMonth").value || monthNow();
+      const v = parseEuro($("#budgetInput").value);
+      if (!Number.isFinite(v) || v <= 0) { toast("Budget non valido"); return; }
+      setBudgetCents(m, Math.round(v * 100));
+      closeBudgetModal();
+      toast("Budget salvato ✅");
+      calcStats();
+      renderArchive();
+    });
+    $('#budgetClear')?.addEventListener('click', () => {
+      const m = $("#fMonth").value || monthNow();
+      setBudgetCents(m, null);
+      $("#budgetInput").value = "";
+      closeBudgetModal();
+      toast("Budget rimosso");
+      calcStats();
+      renderArchive();
+    });
 
-      // Budget
-      $('#btnBudget')?.addEventListener('click', openBudgetModal);
-      $('#budgetClose')?.addEventListener('click', closeBudgetModal);
-      $('#modalBudget')?.addEventListener('click', (e) => { if (e.target === $('#modalBudget')) closeBudgetModal(); });
-      $('#budgetSave')?.addEventListener('click', () => {
-        const m = $("#fMonth").value || monthNow();
-        const v = parseEuro($("#budgetInput").value);
-        if (!Number.isFinite(v) || v <= 0) { toast("Budget non valido"); return; }
-        setBudgetCents(m, Math.round(v * 100));
-        closeBudgetModal();
-        toast("Budget salvato ✅");
-        calcStats();
-        renderArchive();
-      });
-      $('#budgetClear')?.addEventListener('click', () => {
-        const m = $("#fMonth").value || monthNow();
-        setBudgetCents(m, null);
-        $("#budgetInput").value = "";
-        closeBudgetModal();
-        toast("Budget rimosso");
-        calcStats();
-        renderArchive();
-      });
+    // Pro toggle
+    $('#btnProToggle')?.addEventListener('click', () => {
+      const ok = confirm(settings.isPro ? "Disattivare PRO (test)?" : "Attivare PRO (test) su questo dispositivo?");
+      if (!ok) return;
+      settings.isPro = !settings.isPro;
+      saveSettings();
+      setProUI();
+      toast(settings.isPro ? "PRO attivo (test)" : "FREE attivo");
+    });
 
-      // Pro toggle
-      $('#btnProToggle')?.addEventListener('click', () => {
-        const ok = confirm(settings.isPro ? "Disattivare PRO (test)?" : "Attivare PRO (test) su questo dispositivo?");
-        if (!ok) return;
-        settings.isPro = !settings.isPro;
-        saveSettings();
-        setProUI();
-        toast(settings.isPro ? "PRO attivo (test)" : "FREE attivo");
-      });
+    // Report
+    $("#rMonth").value = monthNow();
+    $("#rMonth")?.addEventListener('change', renderAnalysis);
+    $("#anaOnlyCaf")?.addEventListener('change', renderAnalysis);
+    $("#btnMakePdf")?.addEventListener('click', () => {
+      const mode = $("#rMode").value || "month";
+      const m = $("#rMonth").value || monthNow();
+      generatePdf(mode, m);
+    });
 
-      // Report
-      $("#rMonth").value = monthNow();
-      $("#rMonth")?.addEventListener('change', renderAnalysis);
-      $("#anaOnlyCaf")?.addEventListener('change', renderAnalysis);
-      $("#btnMakePdf")?.addEventListener('click', () => {
-        const mode = $("#rMode").value || "month";
-        const m = $("#rMonth").value || monthNow();
-        generatePdf(mode, m);
-      });
-
-      // Commercialista
-      $("#btnSendAccountant")?.addEventListener('click', () => {
-        try {
-          const ym = $("#rMonth")?.value || monthNow();
-          const from = firstDayOfMonth(ym) || todayISO();
-          const to = lastDayOfMonth(ym) || todayISO();
-          const f = $("#accFrom");
-          const t = $("#accTo");
-          if (f) f.value = from;
-          if (t) t.value = to;
-        } catch (_) { }
-        showModal("#modalAccountant");
-      });
-      $("#accClose")?.addEventListener('click', hideAllModals);
-      $("#modalAccountant")?.addEventListener('click', (e) => { if (e.target === $("#modalAccountant")) hideAllModals(); });
-      $("#accPresetThis")?.addEventListener('click', () => {
-        const ym = monthNow();
+    // Commercialista
+    $("#btnSendAccountant")?.addEventListener('click', () => {
+      try {
+        const ym = $("#rMonth")?.value || monthNow();
+        const from = firstDayOfMonth(ym) || todayISO();
+        const to = lastDayOfMonth(ym) || todayISO();
         const f = $("#accFrom");
         const t = $("#accTo");
-        if (f) f.value = firstDayOfMonth(ym) || todayISO();
-        if (t) t.value = lastDayOfMonth(ym) || todayISO();
-      });
-      $("#accPresetPrev")?.addEventListener('click', () => {
-        const now = new Date();
-        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const ym = `${prev.getFullYear()}-${pad2(prev.getMonth() + 1)}`;
-        const f = $("#accFrom");
-        const t = $("#accTo");
-        if (f) f.value = firstDayOfMonth(ym) || todayISO();
-        if (t) t.value = lastDayOfMonth(ym) || todayISO();
-      });
-      $("#accSend")?.addEventListener('click', async () => {
-        const from = $("#accFrom")?.value;
-        const to = $("#accTo")?.value;
-        await sendToAccountant({ from, to, mode: 'caf', pack: 'zip', includePhotos: false });
-      });
+        if (f) f.value = from;
+        if (t) t.value = to;
+      } catch (_) { }
+      showModal("#modalAccountant");
+    });
+    $("#accClose")?.addEventListener('click', hideAllModals);
+    $("#modalAccountant")?.addEventListener('click', (e) => { if (e.target === $("#modalAccountant")) hideAllModals(); });
+    $("#accPresetThis")?.addEventListener('click', () => {
+      const ym = monthNow();
+      const f = $("#accFrom");
+      const t = $("#accTo");
+      if (f) f.value = firstDayOfMonth(ym) || todayISO();
+      if (t) t.value = lastDayOfMonth(ym) || todayISO();
+    });
+    $("#accPresetPrev")?.addEventListener('click', () => {
+      const now = new Date();
+      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const ym = `${prev.getFullYear()}-${pad2(prev.getMonth() + 1)}`;
+      const f = $("#accFrom");
+      const t = $("#accTo");
+      if (f) f.value = firstDayOfMonth(ym) || todayISO();
+      if (t) t.value = lastDayOfMonth(ym) || todayISO();
+    });
+    $("#accSend")?.addEventListener('click', async () => {
+      const from = $("#accFrom")?.value;
+      const to = $("#accTo")?.value;
+      await sendToAccountant({ from, to, mode: 'caf', pack: 'zip', includePhotos: false });
+    });
 
-      // Backup
-      $("#btnBackup")?.addEventListener('click', exportBackup);
-      $("#btnExportQif")?.addEventListener('click', exportQif);
-      $("#btnExportOfx")?.addEventListener('click', exportOfx);
-      $("#btnShareReport")?.addEventListener('click', shareCurrentReport);
-      $("#btnExportChart")?.addEventListener('click', exportChartImage);
-      $("#btnCalcTax")?.addEventListener('click', calcTax);
-      $("#btnCalcTaxClear")?.addEventListener('click', () => {
-        ["#taxRevenue", "#taxCoeff", "#taxRate", "#taxInps"].forEach(s => { const el = document.querySelector(s); if (el) el.value = ""; });
-        const o = document.querySelector("#taxOut"); if (o) o.textContent = "";
-      });
-      $("#inRestore")?.addEventListener('change', (e) => {
-        const f = e.target.files?.[0];
-        if (f) importBackup(f);
-        e.target.value = "";
-      });
-      $("#btnWipeAll")?.addEventListener('click', wipeAll);
+    // Backup
+    $("#btnBackup")?.addEventListener('click', exportBackup);
+    $("#btnExportQif")?.addEventListener('click', exportQif);
+    $("#btnExportOfx")?.addEventListener('click', exportOfx);
+    $("#btnShareReport")?.addEventListener('click', shareCurrentReport);
+    $("#btnExportChart")?.addEventListener('click', exportChartImage);
+    $("#btnCalcTax")?.addEventListener('click', calcTax);
+    $("#btnCalcTaxClear")?.addEventListener('click', () => {
+      ["#taxRevenue", "#taxCoeff", "#taxRate", "#taxInps"].forEach(s => { const el = document.querySelector(s); if (el) el.value = ""; });
+      const o = document.querySelector("#taxOut"); if (o) o.textContent = "";
+    });
+    $("#inRestore")?.addEventListener('change', (e) => {
+      const f = e.target.files?.[0];
+      if (f) importBackup(f);
+      e.target.value = "";
+    });
+    $("#btnWipeAll")?.addEventListener('click', wipeAll);
 
-      // Autoscatto
-      $("#btnReceiptCameraAuto")?.addEventListener('click', openAutoCamera);
-      document.querySelectorAll("[data-cam-auto-close]").forEach(el => {
-        el.addEventListener('click', () => {
-          if (autoCamStream) {
-            autoCamStream.getTracks().forEach(t => t.stop());
-            autoCamStream = null;
-          }
-          hideModal('#camAutoModal');
-        });
-      });
-      $("#camAutoShotManual")?.addEventListener('click', captureAutoFrame);
-      $("#camAutoSwitch")?.addEventListener('click', () => {
+    // Autoscatto
+    $("#btnReceiptCameraAuto")?.addEventListener('click', openAutoCamera);
+    document.querySelectorAll("[data-cam-auto-close]").forEach(el => {
+      el.addEventListener('click', () => {
         if (autoCamStream) {
-          const track = autoCamStream.getVideoTracks()[0];
-          if (track) {
-            const capabilities = track.getCapabilities();
-            if (capabilities.facingMode) {
-              const newMode = track.getSettings().facingMode === 'environment' ? 'user' : 'environment';
-              track.applyConstraints({ facingMode: newMode }).catch(console.warn);
-            }
+          autoCamStream.getTracks().forEach(t => t.stop());
+          autoCamStream = null;
+        }
+        hideModal('#camAutoModal');
+      });
+    });
+    $("#camAutoShotManual")?.addEventListener('click', captureAutoFrame);
+    $("#camAutoSwitch")?.addEventListener('click', () => {
+      if (autoCamStream) {
+        const track = autoCamStream.getVideoTracks()[0];
+        if (track) {
+          const capabilities = track.getCapabilities();
+          if (capabilities.facingMode) {
+            const newMode = track.getSettings().facingMode === 'environment' ? 'user' : 'environment';
+            track.applyConstraints({ facingMode: newMode }).catch(console.warn);
           }
         }
-      });
-
-      // Navigazione
-      document.querySelectorAll(".navBtn").forEach(b => {
-        b.addEventListener('click', () => {
-          haptic(6);
-          showPage(b.getAttribute("data-nav"));
-        });
-      });
-      $("#goArchive")?.addEventListener('click', () => showPage("archive"));
-      $("#goReport")?.addEventListener('click', () => showPage("report"));
-      $("#viewList")?.addEventListener('click', () => { settings.viewMode = "list"; saveSettings(); renderArchive(); });
-      $("#viewTimeline")?.addEventListener('click', () => { settings.viewMode = "timeline"; saveSettings(); renderArchive(); });
-      $("#fMonth")?.addEventListener('change', renderArchive);
-      $("#fCategory")?.addEventListener('change', renderArchive);
-      $("#fSearch")?.addEventListener('input', () => { clearTimeout(window.__ft); window.__ft = setTimeout(renderArchive, 120); });
-      ["#fFrom", "#fTo", "#fMin", "#fMax", "#fHasPhoto", "#fTag"].forEach(sel => {
-        const el = document.querySelector(sel);
-        if (!el) return;
-        const ev = (sel === "#fHasPhoto" || sel === "#fFrom" || sel === "#fTo") ? "change" : "input";
-        el.addEventListener(ev, () => { clearTimeout(window.__ft2); window.__ft2 = setTimeout(renderArchive, 120); });
-      });
-      $("#btnClearFilters")?.addEventListener('click', () => {
-        $("#fMonth").value = monthNow();
-        $("#fCategory").value = "";
-        $("#fSearch").value = "";
-        ["#fFrom", "#fTo", "#fMin", "#fMax", "#fHasPhoto", "#fTag"].forEach(s => { const el = document.querySelector(s); if (el) { if (el.tagName === "SELECT") el.value = ""; else el.value = ""; } });
-        toast("Filtri puliti");
-        renderArchive();
-      });
-
-      // Impostazioni
-      const $ocrKeyInput = $("#ocrKeyInput");
-      const $ocrProviderSelect = $("#ocrProviderSelect");
-      const $ocrEndpointInput = $("#ocrEndpointInput");
-      const $ocrAutoSaveToggle = $("#ocrAutoSaveToggle");
-      const $langSelect = $("#langSelect");
-      const $btnSaveSettings = $("#btnSaveSettings");
-      const $btnTestOcrKey = $("#btnTestOcrKey");
-      const $ocrKeyStatus = $("#ocrKeyStatus");
-
-      if ($btnSaveSettings) {
-        $btnSaveSettings.addEventListener('click', () => {
-          const key = ($ocrKeyInput?.value || "").trim();
-          if (key) settings.ocrSpaceKey = key;
-          const mode = ($ocrProviderSelect?.value || "offline").toLowerCase();
-          settings.ocrMode = mode;
-          const ep = ($ocrEndpointInput?.value || "").trim();
-          settings.ocrEndpoint = ep;
-          settings.ocrAutoSave = !!($ocrAutoSaveToggle && $ocrAutoSaveToggle.checked);
-          settings.lang = $langSelect?.value || "it";
-          saveSettings();
-          applyLang();
-          toast(settings.lang === "en" ? "Settings saved" : "Impostazioni salvate");
-        });
       }
-      if ($btnTestOcrKey) {
-        $btnTestOcrKey.addEventListener('click', async () => {
-          try {
-            if ($ocrKeyStatus) $ocrKeyStatus.textContent = "Verifica in corso...";
-            const r = await testOcrSpaceKey();
-            if (r && r.ok) {
-              if ($ocrKeyStatus) $ocrKeyStatus.textContent = "OK ✅";
-              toast("API key OCR.Space valida ✅");
-            } else {
-              const msg = (r && r.error) ? r.error : "Non valida";
-              if ($ocrKeyStatus) $ocrKeyStatus.textContent = "Errore";
-              toast("API key non valida: " + msg);
-            }
-          } catch (e) {
-            if ($ocrKeyStatus) $ocrKeyStatus.textContent = "Errore";
-            toast("Test key fallito: " + (e && e.message ? e.message : e));
-          }
-        });
-      }
-      if ($("#btnResetApp")) {
-        $("#btnResetApp").addEventListener('click', () => {
-          if (!confirm(settings.lang === "en" ? "Reset all app data?" : "Resettare tutti i dati dell'app?")) return;
-          localStorage.clear();
-          location.reload();
-        });
-      }
+    });
 
-      toast('App pronta');
-    }); // fine DOMContentLoaded
+    // Navigazione
+    document.querySelectorAll(".navBtn").forEach(b => {
+      b.addEventListener('click', () => {
+        haptic(6);
+        showPage(b.getAttribute("data-nav"));
+      });
+    });
+    $("#goArchive")?.addEventListener('click', () => showPage("archive"));
+    $("#goReport")?.addEventListener('click', () => showPage("report"));
+    $("#viewList")?.addEventListener('click', () => { settings.viewMode = "list"; saveSettings(); renderArchive(); });
+    $("#viewTimeline")?.addEventListener('click', () => { settings.viewMode = "timeline"; saveSettings(); renderArchive(); });
+    $("#fMonth")?.addEventListener('change', renderArchive);
+    $("#fCategory")?.addEventListener('change', renderArchive);
+    $("#fSearch")?.addEventListener('input', () => { clearTimeout(window.__ft); window.__ft = setTimeout(renderArchive, 120); });
+    ["#fFrom", "#fTo", "#fMin", "#fMax", "#fHasPhoto", "#fTag"].forEach(sel => {
+      const el = document.querySelector(sel);
+      if (!el) return;
+      const ev = (sel === "#fHasPhoto" || sel === "#fFrom" || sel === "#fTo") ? "change" : "input";
+      el.addEventListener(ev, () => { clearTimeout(window.__ft2); window.__ft2 = setTimeout(renderArchive, 120); });
+    });
+    $("#btnClearFilters")?.addEventListener('click', () => {
+      $("#fMonth").value = monthNow();
+      $("#fCategory").value = "";
+      $("#fSearch").value = "";
+      ["#fFrom", "#fTo", "#fMin", "#fMax", "#fHasPhoto", "#fTag"].forEach(s => { const el = document.querySelector(s); if (el) { if (el.tagName === "SELECT") el.value = ""; else el.value = ""; } });
+      toast("Filtri puliti");
+      renderArchive();
+    });
 
-    // Se il DOM è già stato caricato (raro), forziamo l'esecuzione
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => {});
-    } else {
-      // Già caricato, esegui subito (ma in questo contesto non serve perché l'evento è già stato emesso)
+    // Impostazioni
+    const $ocrKeyInput = $("#ocrKeyInput");
+    const $ocrProviderSelect = $("#ocrProviderSelect");
+    const $ocrEndpointInput = $("#ocrEndpointInput");
+    const $ocrAutoSaveToggle = $("#ocrAutoSaveToggle");
+    const $langSelect = $("#langSelect");
+    const $btnSaveSettings = $("#btnSaveSettings");
+    const $btnTestOcrKey = $("#btnTestOcrKey");
+    const $ocrKeyStatus = $("#ocrKeyStatus");
+
+    if ($btnSaveSettings) {
+      $btnSaveSettings.addEventListener('click', () => {
+        const key = ($ocrKeyInput?.value || "").trim();
+        if (key) settings.ocrSpaceKey = key;
+        const mode = ($ocrProviderSelect?.value || "offline").toLowerCase();
+        settings.ocrMode = mode;
+        const ep = ($ocrEndpointInput?.value || "").trim();
+        settings.ocrEndpoint = ep;
+        settings.ocrAutoSave = !!($ocrAutoSaveToggle && $ocrAutoSaveToggle.checked);
+        settings.lang = $langSelect?.value || "it";
+        saveSettings();
+        applyLang();
+        toast(settings.lang === "en" ? "Settings saved" : "Impostazioni salvate");
+      });
     }
-  })(); // fine start()
+    if ($btnTestOcrKey) {
+      $btnTestOcrKey.addEventListener('click', async () => {
+        try {
+          if ($ocrKeyStatus) $ocrKeyStatus.textContent = "Verifica in corso...";
+          const r = await testOcrSpaceKey();
+          if (r && r.ok) {
+            if ($ocrKeyStatus) $ocrKeyStatus.textContent = "OK ✅";
+            toast("API key OCR.Space valida ✅");
+          } else {
+            const msg = (r && r.error) ? r.error : "Non valida";
+            if ($ocrKeyStatus) $ocrKeyStatus.textContent = "Errore";
+            toast("API key non valida: " + msg);
+          }
+        } catch (e) {
+          if ($ocrKeyStatus) $ocrKeyStatus.textContent = "Errore";
+          toast("Test key fallito: " + (e && e.message ? e.message : e));
+        }
+      });
+    }
+    if ($("#btnResetApp")) {
+      $("#btnResetApp").addEventListener('click', () => {
+        if (!confirm(settings.lang === "en" ? "Reset all app data?" : "Resettare tutti i dati dell'app?")) return;
+        localStorage.clear();
+        location.reload();
+      });
+    }
+  }
+
+  // Funzioni rimaste indietro (applyScanner)
+  async function applyScanner() {
+    if (!scanImg) return;
+    const crop = computeCropRect(scanImg);
+    const dataUrl = await imageToDataUrl(scanImg, scanRotate, crop, scanContrast, scanBright);
+    previewPhoto = dataUrl;
+    if (Array.isArray(selectedPhotos) && selectedPhotos.length) { selectedPhotos[0] = dataUrl; }
+    else { selectedPhotos = [dataUrl]; }
+    if (settings.saveOriginals) {
+      if (Array.isArray(selectedOriginals) && selectedOriginals.length) { selectedOriginals[0] = dataUrl; }
+      else { selectedOriginals = [dataUrl]; }
+    }
+    setPhotoPreview(previewPhoto);
+    renderAttachmentsPreview();
+    toast("Scanner applicato ✅");
+    closeScanner();
+  }
+  function closeScanner() { hideModal("#modalScanner"); }
+
+  // ===================== AVVIO =====================
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startApp);
+  } else {
+    startApp();
+  }
+
+  // Per sicurezza, se service worker
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=37.2").catch(() => { }));
+  }
+
 })();
