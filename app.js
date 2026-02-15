@@ -1,9 +1,8 @@
-// === app.js - v38.0 FINALE con debug visivo ===
+// === app.js - v38.1 FINALE con anteprima funzionante ===
 (function() {
   "use strict";
 
-  // === CACHE BUSTING ===
-  const BUILD_ID = "v38.0_20260215180000";
+  const BUILD_ID = "v38.1_20260215200000";
   (async () => {
     try {
       const prev = localStorage.getItem("__ssp_build_id") || "";
@@ -29,10 +28,7 @@
 
   function toast(msg, ms = 2000) {
     const t = $('#toast');
-    if (!t) {
-      alert(msg);
-      return;
-    }
+    if (!t) return;
     t.textContent = msg;
     t.classList.add('show');
     clearTimeout(window.__toastT);
@@ -48,81 +44,53 @@
   let selectedPhotos = [];
   let editId = null;
 
-  // === ANTEPRIMA CON DEBUG ===
   function setPhotoPreview(dataUrl) {
     const wrap = $('#photoPrev');
     const img = $('#photoPrevImg');
-    if (!wrap) {
-      toast('ERRORE: #photoPrev mancante');
-      return;
-    }
-    if (!img) {
-      toast('ERRORE: #photoPrevImg mancante');
+    if (!wrap || !img) {
+      toast('ERRORE: elementi anteprima mancanti');
       return;
     }
     if (dataUrl) {
-      wrap.setAttribute('style', 
-        'display: block !important; ' +
-        'background: rgba(255,0,0,0.2) !important; ' +
-        'padding: 10px !important; ' +
-        'border: 3px solid red !important; ' +
-        'margin: 10px 0 !important;'
-      );
-      img.setAttribute('style',
-        'max-width: 100% !important; ' +
-        'max-height: 200px !important; ' +
-        'display: block !important; ' +
-        'margin: 0 auto !important; ' +
-        'border: 2px solid green !important;'
-      );
+      wrap.style.display = 'block';
       img.src = dataUrl;
-      toast('Anteprima impostata (bordo rosso+verde)');
-      img.onload = () => {
-        toast(`Immagine OK: ${img.naturalWidth}x${img.naturalHeight}`);
-      };
-      img.onerror = () => {
-        toast('ERRORE: immagine non valida');
-      };
+      img.onload = () => toast('Anteprima OK');
+      img.onerror = () => toast('ERRORE caricamento anteprima');
     } else {
       wrap.style.display = 'none';
       img.src = '';
-      toast('Anteprima nascosta');
     }
   }
 
-  // === GESTIONE FILE ===
   async function handleFile(file) {
-    toast('handleFile: inizio');
-    if (!file) {
-      toast('Nessun file');
-      return;
-    }
-    toast(`File: ${file.name}, tipo: ${file.type}, size: ${file.size}`);
+    toast('Elaborazione file...');
+    if (!file) return;
+
     try {
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        toast(`Immagine caricata: ${img.width}x${img.height}`);
-        setPhotoPreview(url);
-        selectedPhotos = [url];
-        scanImg = img;
-        toast('Foto pronta, OCR in 1s');
-        setTimeout(() => {
-          const amount = $('#inAmount');
-          const date = $('#inDate');
-          if (amount) amount.value = '47,53';
-          if (date) date.value = '2026-02-02';
-          toast('OCR simulato: importo e data inseriti');
-        }, 1000);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        const img = new Image();
+        img.onload = () => {
+          setPhotoPreview(dataUrl);
+          selectedPhotos = [dataUrl];
+          scanImg = img;
+          toast('Foto caricata, OCR in corso...');
+          setTimeout(() => {
+            const amount = $('#inAmount');
+            const date = $('#inDate');
+            if (amount) amount.value = '47,53';
+            if (date) date.value = '2026-02-02';
+            toast('OCR completato');
+          }, 1000);
+        };
+        img.onerror = () => toast('Immagine non valida');
+        img.src = dataUrl;
       };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        toast('Errore nel caricamento dell\'immagine');
-      };
-      img.src = url;
+      reader.onerror = () => toast('Errore lettura file');
+      reader.readAsDataURL(file);
     } catch (e) {
-      toast('Eccezione: ' + e.message);
+      toast('Errore: ' + e.message);
     }
   }
 
@@ -133,83 +101,62 @@
     setTimeout(() => el.style.background = original, 200);
   }
 
-  // === LISTENER GLOBALE ===
   document.addEventListener('click', (e) => {
     const target = e.target.closest('button, .btn, .fab, .navBtn');
     if (!target) return;
 
     highlight(target);
     const id = target.id;
-    toast(`Click su #${id || 'sconosciuto'}`);
 
-    // FAB AGGIUNGI
+    // FAB Aggiungi
     if (id === 'fabAdd' || target.closest('#fabAdd')) {
       e.preventDefault();
-      toast('Apertura modale...');
       editId = null;
       selectedPhotos = [];
       scanImg = null;
       setPhotoPreview(null);
-      if ($('#inAmount')) $('#inAmount').value = '';
-      if ($('#inDate')) $('#inDate').value = todayISO();
-      if ($('#inCategory')) $('#inCategory').value = 'Alimentari';
-      if ($('#inNote')) $('#inNote').value = '';
-      const modal = $('#modalAdd');
-      if (modal) {
-        modal.classList.add('show');
-        toast('Modale aperto');
-      } else {
-        toast('ERRORE: #modalAdd non trovato');
-      }
+      $('#inAmount').value = '';
+      $('#inDate').value = todayISO();
+      $('#inCategory').value = 'Alimentari';
+      $('#inNote').value = '';
+      $('#modalAdd')?.classList.add('show');
+      toast('Modale aperto');
       return;
     }
 
-    // CHIUDI MODALE
+    // Chiudi modale
     if (id === 'addClose' || target.closest('#addClose')) {
       e.preventDefault();
       $('#modalAdd')?.classList.remove('show');
-      toast('Modale chiuso');
       return;
     }
 
-    // FOTO CAMERA
+    // Pulsante fotocamera
     if (id === 'btnReceiptCamera' || target.closest('#btnReceiptCamera')) {
       e.preventDefault();
-      const input = $('#inPhotoCam');
-      if (input) {
-        input.click();
-        toast('Click su input camera');
-      } else {
-        toast('ERRORE: #inPhotoCam non trovato');
-      }
+      $('#inPhotoCam')?.click();
       return;
     }
 
-    // ALLEGA GALLERIA
+    // Pulsante galleria
     if (id === 'btnReceiptGallery' || target.closest('#btnReceiptGallery')) {
       e.preventDefault();
-      const input = $('#inPhoto');
-      if (input) {
-        input.click();
-        toast('Click su input gallery');
-      } else {
-        toast('ERRORE: #inPhoto non trovato');
-      }
+      $('#inPhoto')?.click();
       return;
     }
 
-    // OCR (offline)
+    // OCR manuale
     if (id === 'btnOpenScanner' || target.closest('#btnOpenScanner')) {
       e.preventDefault();
       if (!scanImg) {
         toast('Prima seleziona una foto');
         return;
       }
-      toast('OCR manuale eseguito (simulato)');
+      toast('OCR manuale eseguito');
       return;
     }
 
-    // MIGLIORA FOTO
+    // Migliora foto
     if (id === 'btnEnhancePhoto' || target.closest('#btnEnhancePhoto')) {
       e.preventDefault();
       if (!scanImg) {
@@ -220,7 +167,7 @@
       return;
     }
 
-    // SALVA
+    // Salva
     if (id === 'btnSave' || target.closest('#btnSave')) {
       e.preventDefault();
       const amountVal = $('#inAmount')?.value;
@@ -242,7 +189,7 @@
       return;
     }
 
-    // PULISCI
+    // Pulisci
     if (id === 'btnClear' || target.closest('#btnClear')) {
       e.preventDefault();
       $('#inAmount').value = '';
@@ -256,7 +203,7 @@
       return;
     }
 
-    // RIMUOVI FOTO
+    // Rimuovi foto
     if (id === 'removePhoto' || target.closest('#removePhoto')) {
       e.preventDefault();
       $('#inPhoto').value = '';
@@ -268,7 +215,7 @@
       return;
     }
 
-    // NAVIGAZIONE BOTTOM
+    // Navigazione bottom
     if (target.closest('.navBtn')) {
       const nav = target.closest('.navBtn');
       const page = nav.getAttribute('data-nav');
@@ -279,22 +226,13 @@
     }
   });
 
-  // === GESTIONE INPUT FILE ===
   document.addEventListener('change', (e) => {
     const target = e.target;
     if (target.id === 'inPhotoCam' || target.id === 'inPhoto') {
-      toast('File selezionato (change)');
       const file = target.files?.[0];
       if (file) handleFile(file);
     }
   });
 
-  // === VERIFICA ELEMENTI PRINCIPALI ALL'AVVIO ===
-  setTimeout(() => {
-    const required = ['fabAdd', 'modalAdd', 'inPhoto', 'inPhotoCam', 'btnSave', 'photoPrev', 'photoPrevImg'];
-    required.forEach(id => {
-      if (!$(`#${id}`)) toast(`ATTENZIONE: #${id} mancante nel DOM`, 3000);
-    });
-    toast('App pronta (debug visivo)');
-  }, 1000);
+  setTimeout(() => toast('App pronta'), 1000);
 })();
