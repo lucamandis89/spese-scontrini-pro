@@ -2292,6 +2292,30 @@ async function autoCropScanner(){
     };
   })();
 
+  // ===================== FUNZIONE TEST OCR.SPACE (spostata dentro l'IIFE) =====================
+  async function testOcrSpaceKey() {
+    const key = settings.ocrSpaceKey || '';
+    if (!key) return { ok: false, error: 'Chiave non inserita' };
+    const endpoint = settings.ocrEndpoint || 'https://api.ocr.space/parse/image';
+    // Use a tiny test image (base64 of a simple text)
+    const testImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAAAlwSFlzAAAOwgAADsIBFShKgAAAABh0RVh0U29mdHdhcmUAcGFpbnQubmV0IDQuMC4zjOaXUAAAANpJREFUOE+lk7ENgzAQRZ2iYAKKjEAHVMxAwzJ0bMAU0LECY7ABW1Ckg4SUiI+7yM6TLSFZ8vf7fufYwTjn3gC2JEmuYRiuxhhjAQCQZdlNCOE7TdMniqIHEKkFANR1beM4/pzHca5pmj4AIIoiG4bhMwzDxzRNH0VRnFLqBWBZFrMsy+fneZ5TSt0YY+2yLMYYY+y2bXae58YYY9d1tXEc2+fzadtg2za7bZudc86u62pzzsYYY23btmY2Y4y1bdtZzszmnL0xxlrrnDXGWOucnZndGGOtdfZf8A1Ny5A6f/Zv1gAAAABJRU5ErkJggg=='; // small receipt icon
+    const blob = await (await fetch(testImage)).blob();
+    const formData = new FormData();
+    formData.append('file', blob, 'test.png');
+    formData.append('apikey', key);
+    formData.append('language', 'ita');
+    try {
+      const response = await fetch(endpoint, { method: 'POST', body: formData });
+      const data = await response.json();
+      if (data.IsErroredOnProcessing) {
+        return { ok: false, error: data.ErrorMessage || 'Errore' };
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  }
+
   // ---------------- EVENTS ----------------
   function wire(){
     document.querySelectorAll(".navBtn").forEach(b=>{
@@ -2713,27 +2737,3 @@ $("#addClose").addEventListener("click", closeAdd);
   })();
 
 })();
-
-// ===================== FUNZIONE TEST OCR.SPACE =====================
-async function testOcrSpaceKey() {
-  const key = settings.ocrSpaceKey || '';
-  if (!key) return { ok: false, error: 'Chiave non inserita' };
-  const endpoint = settings.ocrEndpoint || 'https://api.ocr.space/parse/image';
-  // Use a tiny test image (base64 of a simple text)
-  const testImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAAAlwSFlzAAAOwgAADsIBFShKgAAAABh0RVh0U29mdHdhcmUAcGFpbnQubmV0IDQuMC4zjOaXUAAAANpJREFUOE+lk7ENgzAQRZ2iYAKKjEAHVMxAwzJ0bMAU0LECY7ABW1Ckg4SUiI+7yM6TLSFZ8vf7fufYwTjn3gC2JEmuYRiuxhhjAQCQZdlNCOE7TdMniqIHEKkFANR1beM4/pzHca5pmj4AIIoiG4bhMwzDxzRNH0VRnFLqBWBZFrMsy+fneZ5TSt0YY+2yLMYYY+y2bXae58YYY9d1tXEc2+fzadtg2za7bZudc86u62pzzsYYY23btmY2Y4y1bdtZzszmnL0xxlrrnDXGWOucnZndGGOtdfZf8A1Ny5A6f/Zv1gAAAABJRU5ErkJggg=='; // small receipt icon
-  const blob = await (await fetch(testImage)).blob();
-  const formData = new FormData();
-  formData.append('file', blob, 'test.png');
-  formData.append('apikey', key);
-  formData.append('language', 'ita');
-  try {
-    const response = await fetch(endpoint, { method: 'POST', body: formData });
-    const data = await response.json();
-    if (data.IsErroredOnProcessing) {
-      return { ok: false, error: data.ErrorMessage || 'Errore' };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
-}
