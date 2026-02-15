@@ -854,7 +854,7 @@ const $langSelect  = $("#langSelect");
 const $btnSaveSettings = $("#btnSaveSettings");
 const $btnResetApp = $("#btnResetApp");
 const $btnTestOcrKey = $("#btnTestOcrKey");
-const $ocrKeyTestStatus = $("#ocrKeyTestStatus");
+const $ocrKeyStatus = $("#ocrKeyStatus");
 
 function applyLang(){
   const lang = settings.lang || "it";
@@ -904,18 +904,18 @@ if($btnSaveSettings){
 if($btnTestOcrKey){
   $btnTestOcrKey.addEventListener("click", async ()=>{
     try{
-      if($ocrKeyTestStatus) $ocrKeyTestStatus.textContent = "Verifica in corso...";
+      if($ocrKeyStatus) $ocrKeyStatus.textContent = "Verifica in corso...";
       const r = await testOcrSpaceKey();
       if(r && r.ok){
-        if($ocrKeyTestStatus) $ocrKeyTestStatus.textContent = "OK ✅";
+        if($ocrKeyStatus) $ocrKeyStatus.textContent = "OK ✅";
         toast("API key OCR.Space valida ✅");
       }else{
         const msg = (r && r.error) ? r.error : "Non valida";
-        if($ocrKeyTestStatus) $ocrKeyTestStatus.textContent = "Errore";
+        if($ocrKeyStatus) $ocrKeyStatus.textContent = "Errore";
         toast("API key non valida: " + msg);
       }
     }catch(e){
-      if($ocrKeyTestStatus) $ocrKeyTestStatus.textContent = "Errore";
+      if($ocrKeyStatus) $ocrKeyStatus.textContent = "Errore";
       toast("Test key fallito: " + (e && e.message ? e.message : e));
     }
   });
@@ -2141,6 +2141,157 @@ async function autoCropScanner(){
     }
   }
 
+  // ===================== OCR MODULE =====================
+  window.__sspReceipt = (function() {
+    let currentFile = null;
+    let abortController = null;
+    let lastFile = null;
+  
+    function getLastFile() { return lastFile; }
+    function cancelOcr() { if(abortController) abortController.abort(); }
+  
+    async function handle(file, reason) {
+      if (!file) return;
+      currentFile = file;
+      lastFile = file;
+      abortController = new AbortController();
+      const signal = abortController.signal;
+  
+      try {
+        const text = await performOcr(file, signal);
+        if (signal.aborted) return;
+  
+        // Update OCR text panel
+        const ocrPanel = document.getElementById('ocrPanel');
+        const ocrTextarea = document.getElementById('ocrText');
+        if (ocrPanel) ocrPanel.style.display = 'block';
+        if (ocrTextarea) ocrTextarea.value = text;
+  
+        // Parse amount and date
+        const normalized = normalizeForRegex(text);
+        const amount = parseAmountFromOcr(normalized);
+        const date = parseDateFromOcr(normalized);
+  
+        if (amount && !isNaN(amount) && amount > 0) {
+          document.getElementById('inAmount').value = amount.toFixed(2).replace('.', ',');
+        }
+        if (date) {
+          document.getElementById('inDate').value = date;
+        }
+  
+        // Trigger auto-save event if reason allows
+        if (reason !== 'manual') {
+          window.dispatchEvent(new CustomEvent('ssp:ocr-filled'));
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          toast('OCR fallito: ' + err.message);
+        }
+      } finally {
+        abortController = null;
+      }
+    }
+  
+    async function performOcr(file, signal) {
+      const mode = settings.ocrMode || 'offline';
+      const apiKey = settings.ocrSpaceKey || '';
+      const endpoint = settings.ocrEndpoint || 'https://api.ocr.space/parse/image';
+  
+      if (mode === 'offline' || (mode === 'auto')) {
+        try {
+          return await performTesseractOcr(file, signal);
+        } catch (err) {
+          if (mode === 'auto' && apiKey) {
+            // fallback to online
+            return await performOcrSpace(file, apiKey, endpoint, signal);
+          } else {
+            throw err;
+          }
+        }
+      } else if (mode === 'online') {
+        if (!apiKey) throw new Error('API key mancante');
+        return await performOcrSpace(file, apiKey, endpoint, signal);
+      } else {
+        throw new Error('Modalità OCR sconosciuta');
+      }
+    }
+  
+    async function performTesseractOcr(file, signal) {
+      if (!window.Tesseract) throw new Error('Tesseract non caricato');
+      const worker = await Tesseract.createWorker({
+        logger: m => console.log(m),
+      });
+      signal.addEventListener('abort', () => worker.terminate());
+      await worker.loadLanguage('ita+eng');
+      await worker.initialize('ita+eng');
+      const { data: { text } } = await worker.recognize(file);
+      await worker.terminate();
+      return text;
+    }
+  
+    async function performOcrSpace(file, apiKey, endpoint, signal) {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('apikey', apiKey);
+      formData.append('language', 'ita');
+      formData.append('isOverlayRequired', 'false');
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        body: formData,
+        signal,
+      });
+      const data = await response.json();
+      if (data.IsErroredOnProcessing) throw new Error(data.ErrorMessage || 'OCR.Space error');
+      const text = data.ParsedResults.map(p => p.ParsedText).join('\n');
+      return text;
+    }
+  
+    function parseAmountFromOcr(text) {
+      // Cerca pattern come "TOTAL: 12,50" o "€ 12.50" o "12.50" con parole chiave
+      const patterns = [
+        /(?:totale|importo|total|amount|€|eur)\s*[:]?\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)/i,
+        /(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)\s*(?:€|eur|euro)/i,
+        /(\d{1,3}(?:[.,]\d{2})?)(?=\s*$)/m
+      ];
+      for (const pat of patterns) {
+        const m = text.match(pat);
+        if (m) {
+          let num = m[1].replace(/\./g, '').replace(',', '.');
+          return parseFloat(num);
+        }
+      }
+      return NaN;
+    }
+  
+    function parseDateFromOcr(text) {
+      // Cerca date in formato dd/mm/yyyy, dd-mm-yyyy, yyyy-mm-dd
+      const patterns = [
+        /(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})/,
+        /(\d{4})[\/\-\.](\d{2})[\/\-\.](\d{2})/,
+      ];
+      for (const pat of patterns) {
+        const m = text.match(pat);
+        if (m) {
+          if (m[1].length === 4) { // yyyy-mm-dd
+            return `${m[1]}-${m[2]}-${m[3]}`;
+          } else { // dd-mm-yyyy
+            return `${m[3]}-${m[2]}-${m[1]}`;
+          }
+        }
+      }
+      return '';
+    }
+  
+    return {
+      get lastFile() { return lastFile; },
+      get file() { return currentFile; },
+      set file(f) { currentFile = f; lastFile = f; },
+      getLastFile,
+      cancelOcr,
+      handle,
+    };
+  })();
+
   // ---------------- EVENTS ----------------
   function wire(){
     document.querySelectorAll(".navBtn").forEach(b=>{
@@ -2562,3 +2713,27 @@ $("#addClose").addEventListener("click", closeAdd);
   })();
 
 })();
+
+// ===================== FUNZIONE TEST OCR.SPACE =====================
+async function testOcrSpaceKey() {
+  const key = settings.ocrSpaceKey || '';
+  if (!key) return { ok: false, error: 'Chiave non inserita' };
+  const endpoint = settings.ocrEndpoint || 'https://api.ocr.space/parse/image';
+  // Use a tiny test image (base64 of a simple text)
+  const testImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAAAlwSFlzAAAOwgAADsIBFShKgAAAABh0RVh0U29mdHdhcmUAcGFpbnQubmV0IDQuMC4zjOaXUAAAANpJREFUOE+lk7ENgzAQRZ2iYAKKjEAHVMxAwzJ0bMAU0LECY7ABW1Ckg4SUiI+7yM6TLSFZ8vf7fufYwTjn3gC2JEmuYRiuxhhjAQCQZdlNCOE7TdMniqIHEKkFANR1beM4/pzHca5pmj4AIIoiG4bhMwzDxzRNH0VRnFLqBWBZFrMsy+fneZ5TSt0YY+2yLMYYY+y2bXae58YYY9d1tXEc2+fzadtg2za7bZudc86u62pzzsYYY23btmY2Y4y1bdtZzszmnL0xxlrrnDXGWOucnZndGGOtdfZf8A1Ny5A6f/Zv1gAAAABJRU5ErkJggg=='; // small receipt icon
+  const blob = await (await fetch(testImage)).blob();
+  const formData = new FormData();
+  formData.append('file', blob, 'test.png');
+  formData.append('apikey', key);
+  formData.append('language', 'ita');
+  try {
+    const response = await fetch(endpoint, { method: 'POST', body: formData });
+    const data = await response.json();
+    if (data.IsErroredOnProcessing) {
+      return { ok: false, error: data.ErrorMessage || 'Errore' };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
