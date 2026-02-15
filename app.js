@@ -1,9 +1,40 @@
-// === app.js - Versione con delega eventi e feedback visivo ===
+// === app.js - v37.4 con cache busting migliorato ===
 (function() {
   "use strict";
 
+  // === CACHE BUSTING: forza il ricaricamento se la build è cambiata ===
+  const BUILD_ID = "v37.4_20260215120000";
+  (async () => {
+    try {
+      const prev = localStorage.getItem("__ssp_build_id") || "";
+      if (prev !== BUILD_ID) {
+        console.log("Build cambiata, pulisco cache...");
+        localStorage.setItem("__ssp_build_id", BUILD_ID);
+
+        // Disinstalla tutti i service worker
+        if ("serviceWorker" in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(r => r.unregister()));
+        }
+
+        // Cancella tutte le cache
+        if (window.caches) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(k => caches.delete(k)));
+        }
+
+        // Ricarica la pagina una volta sola
+        if (!sessionStorage.getItem("__ssp_reloaded_once")) {
+          sessionStorage.setItem("__ssp_reloaded_once", "1");
+          location.reload();
+        }
+      }
+    } catch (e) {
+      console.warn("Cache busting skipped", e);
+    }
+  })();
+
   const $ = (s) => document.querySelector(s);
-  const $$ = (s) => document.querySelectorAll(s);
 
   function toast(msg, ms = 2000) {
     const t = $('#toast');
@@ -16,7 +47,7 @@
 
   function todayISO() {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
   let scanImg = null;
@@ -61,7 +92,6 @@
     }
   }
 
-  // Feedback visivo per i pulsanti
   function highlight(el) {
     if (!el) return;
     const originalBg = el.style.background;
@@ -69,7 +99,7 @@
     setTimeout(() => el.style.background = originalBg, 200);
   }
 
-  // Unico listener sul documento (delega)
+  // Unico listener sul documento
   document.addEventListener('click', (e) => {
     const target = e.target.closest('button, .btn, .fab, .navBtn');
     if (!target) return;
