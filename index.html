@@ -3,20 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=yes">
-  <meta name="theme-color" content="#0f172a">
-  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
+  <meta name="theme-color" content="#2563eb">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <title>Spese & Scontrini PRO</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" type="image/svg+xml" href="./assets/logo.svg">
-  <link rel="stylesheet" href="./style.css?v=37.4">
-  <!-- librerie esterne -->
+  <link rel="stylesheet" href="./style.css?v=37.5">
   <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script defer src="./app.js?v=37.4"></script>
+  <script defer src="./app.js?v=37.5"></script>
 </head>
 <body>
   <header class="app-header">
@@ -59,7 +56,7 @@
                   <h3>Budget mensile</h3>
                   <p class="text-muted" id="budgetSub">Imposta un budget</p>
                 </div>
-                <button class="btn btn-sm" id="btnBudget">🎯 Imposta</button>
+                <button class="btn btn-sm btn-primary" id="btnBudget">🎯 Imposta</button>
               </div>
               <div class="budget-bar-container">
                 <div class="budget-bar" id="budgetBar" style="width:0%"></div>
@@ -76,7 +73,7 @@
 
             <div class="action-row">
               <button class="btn btn-primary" id="goArchive">📂 Archivio</button>
-              <button class="btn" id="goReport">📄 Report</button>
+              <button class="btn btn-primary" id="goReport">📄 Report</button>
             </div>
 
             <h3 class="section-title">Ultime spese</h3>
@@ -112,7 +109,7 @@
                   <button class="segmented-btn active" id="viewList">Lista</button>
                   <button class="segmented-btn" id="viewTimeline">Timeline</button>
                 </div>
-                <button class="btn btn-sm" id="btnClearFilters">🧼 Filtri</button>
+                <button class="btn btn-sm btn-primary" id="btnClearFilters">🧼 Filtri</button>
               </div>
             </div>
 
@@ -154,9 +151,9 @@
 
             <div class="action-row">
               <button class="btn btn-primary" id="btnMakePdf">📄 Genera PDF</button>
-              <button class="btn" id="btnSendAccountant">📤 Invia 730</button>
-              <button class="btn" id="btnBackup">⬇️ Backup</button>
-              <label class="btn">
+              <button class="btn btn-primary" id="btnSendAccountant">📤 Invia 730</button>
+              <button class="btn btn-primary" id="btnBackup">⬇️ Backup</button>
+              <label class="btn btn-primary">
                 ⬆️ Ripristina
                 <input type="file" accept="application/json" id="inRestore" style="display:none">
               </label>
@@ -190,7 +187,7 @@
           </div>
           <div class="card-body">
             <div class="settings-section">
-              <h3>OCR (lettura importo/data)</h3>
+              <h3>OCR</h3>
               <p class="text-muted">Chiave pubblica "helloworld" inclusa.</p>
               <div class="form-row">
                 <label>API Key</label>
@@ -199,7 +196,7 @@
               <div class="form-row">
                 <label>Test chiave</label>
                 <div>
-                  <button class="btn btn-sm" id="btnTestOcrKey">Verifica</button>
+                  <button class="btn btn-sm btn-primary" id="btnTestOcrKey">Verifica</button>
                   <span class="text-muted" id="ocrKeyStatus"></span>
                 </div>
               </div>
@@ -208,19 +205,15 @@
                 <select id="ocrProviderSelect">
                   <option value="offline">Offline (Tesseract)</option>
                   <option value="online">Online (OCR.Space)</option>
-                  <option value="auto" selected>Auto (offline → online)</option>
+                  <option value="auto" selected>Auto</option>
                 </select>
-              </div>
-              <div class="form-row">
-                <label>Endpoint (opzionale)</label>
-                <input type="text" id="ocrEndpointInput" placeholder="https://api.ocr.space/parse/image">
               </div>
             </div>
 
             <div class="settings-section">
               <h3>Lingua</h3>
               <div class="form-row">
-                <label>Lingua interfaccia</label>
+                <label>Interfaccia</label>
                 <select id="langSelect">
                   <option value="it">Italiano</option>
                   <option value="en">English</option>
@@ -232,8 +225,8 @@
               <h3>Auto‑salvataggio</h3>
               <div class="form-row checkbox">
                 <label>
-                  <input type="checkbox" id="autoSaveAfterPhotoToggle">
-                  Salva automaticamente dopo aver scattato/importato una foto
+                  <input type="checkbox" id="autoSaveAfterPhotoToggle" checked>
+                  Salva automaticamente dopo ogni foto
                 </label>
               </div>
             </div>
@@ -248,7 +241,7 @@
     </section>
   </main>
 
-  <!-- BOTTOM NAVIGATION -->
+  <!-- BOTTOM NAVIGATION (azzurra come il FAB) -->
   <nav class="bottom-nav">
     <button class="nav-btn active" data-nav="home">
       <span class="nav-icon">🏠</span>
@@ -268,7 +261,7 @@
     </button>
   </nav>
 
-  <!-- FAB DUALI -->
+  <!-- FAB DUALI (azzurri) -->
   <button class="fab" id="fabAdd" aria-label="Aggiungi spesa"></button>
   <button class="fab fab-cam" id="fabCam" aria-label="Scatta foto">📷</button>
 
@@ -300,14 +293,13 @@
         <label>Descrizione</label>
         <input type="text" id="inNote" placeholder="es: spesa supermercato">
 
-        <label>Foto scontrino (opzionale)</label>
+        <label>Foto scontrino</label>
         <div class="photo-actions">
-          <button class="btn" id="btnReceiptCamera">📷 Scatta foto</button>
-          <button class="btn" id="btnReceiptGallery">🖼️ Galleria</button>
-          <button class="btn" id="btnReceiptPdf">📄 Importa PDF</button>
+          <button class="btn btn-primary" id="btnReceiptCamera">📷 Scatta foto</button>
+          <button class="btn btn-primary" id="btnReceiptGallery">🖼️ Galleria</button>
+          <button class="btn btn-primary" id="btnReceiptPdf">📄 Importa PDF</button>
         </div>
 
-        <!-- input unificato per foto/PDF -->
         <input type="file" accept="image/*,application/pdf" id="inPhotoUnified" multiple style="display:none">
 
         <div class="photo-preview" id="photoPreview" style="display:none">
@@ -329,8 +321,8 @@
         <div class="action-row">
           <button class="btn btn-primary" id="btnSave">✅ Salva</button>
           <button class="btn" id="btnClear">🧽 Pulisci</button>
-          <button class="btn" id="btnOpenScanner">🎛️ Migliora foto</button>
-          <button class="btn btn-danger" id="removePhoto">🗑️ Rimuovi foto</button>
+          <button class="btn" id="btnOpenScanner">🎛️ Migliora</button>
+          <button class="btn btn-danger" id="removePhoto">🗑️ Rimuovi</button>
         </div>
       </div>
     </div>
@@ -347,7 +339,7 @@
         <p class="text-muted" id="mMeta"></p>
         <img class="detail-image" id="mImg" style="display:none">
         <div class="action-row">
-          <button class="btn" id="mEdit">✏️ Modifica</button>
+          <button class="btn btn-primary" id="mEdit">✏️ Modifica</button>
           <button class="btn btn-danger" id="mDelete">🗑️ Elimina</button>
         </div>
       </div>
@@ -362,7 +354,7 @@
         <button class="modal-close" id="budgetClose">✕</button>
       </div>
       <div class="modal-body">
-        <label>Budget totale (€)</label>
+        <label>Budget (€)</label>
         <input type="text" id="budgetInput" inputmode="decimal" placeholder="es: 700,00">
         <div class="action-row">
           <button class="btn btn-primary" id="budgetSave">Salva</button>
@@ -376,7 +368,7 @@
   <div class="modal" id="modalScanner">
     <div class="modal-content">
       <div class="modal-header">
-        <h3>🪄 Scanner scontrino</h3>
+        <h3>🪄 Scanner</h3>
         <button class="modal-close" id="scannerClose">✕</button>
       </div>
       <div class="modal-body">
@@ -427,7 +419,7 @@
         <ul>
           <li>OCR illimitato</li>
           <li>PDF senza watermark</li>
-          <li>Nessun limite di spese</li>
+          <li>Nessun limite</li>
         </ul>
         <button class="btn btn-primary" id="btnBuyPro">Sblocca PRO (4,99€)</button>
       </div>
@@ -442,7 +434,7 @@
         <button class="modal-close" id="accClose">✕</button>
       </div>
       <div class="modal-body">
-        <p class="text-muted">CSV + PDF delle spese detraibili (senza foto).</p>
+        <p class="text-muted">CSV + PDF delle spese detraibili.</p>
         <div class="grid-2">
           <div>
             <label>Dal</label>
@@ -457,9 +449,9 @@
           <button class="btn btn-sm" id="accPresetThis">Mese corrente</button>
           <button class="btn btn-sm" id="accPresetPrev">Mese scorso</button>
         </div>
-        <button class="btn btn-primary" id="accSend">Crea pacchetto 730</button>
+        <button class="btn btn-primary" id="accSend">Crea pacchetto</button>
       </div>
     </div>
   </div>
 </body>
-</html>
+                  </html>
