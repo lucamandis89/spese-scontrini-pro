@@ -71,34 +71,33 @@ document.addEventListener('click', (e)=>{
   ]);
 
   // =====================
-  //  BUILD / CACHE BUST (prevents "old version" tap-block issues)
+  //  BUILD / CACHE BUST (MIGLIORATO PER CHROME)
   // =====================
-  // IMPORTANT: bump this on every release so the app auto-clears stale caches
-  // (prevents "tap does nothing" / old JS issues in PWA/APK wrappers)
-  const BUILD_ID = "v37.3_20260214120000";
+  const BUILD_ID = "v37.4_20260215120000";
   (async () => {
-    try{
+    try {
       const prev = localStorage.getItem("__ssp_build_id") || "";
-      if(prev !== BUILD_ID){
+      if (prev !== BUILD_ID) {
         localStorage.setItem("__ssp_build_id", BUILD_ID);
 
-        // Kill old service workers + caches that may keep serving stale JS/CSS
-        if("serviceWorker" in navigator){
+        if ("serviceWorker" in navigator) {
           const regs = await navigator.serviceWorker.getRegistrations();
           await Promise.all(regs.map(r => r.unregister()));
         }
-        if(window.caches){
+        if (window.caches) {
           const keys = await caches.keys();
           await Promise.all(keys.map(k => caches.delete(k)));
         }
 
-        // reload once
-        if(!sessionStorage.getItem("__ssp_reloaded_once")){
-          sessionStorage.setItem("__ssp_reloaded_once","1");
+        // Evita reload multipli in caso di race condition
+        const lastReload = sessionStorage.getItem("__ssp_last_reload");
+        const now = Date.now();
+        if (!lastReload || now - parseInt(lastReload) > 5000) {
+          sessionStorage.setItem("__ssp_last_reload", String(now));
           location.reload();
         }
       }
-    }catch(e){ console.warn("cache-bust skipped", e); }
+    } catch(e) { console.warn("cache-bust skipped", e); }
   })();
 
   const $ = (s) => document.querySelector(s);
@@ -296,6 +295,8 @@ function toast(msg, ms=1600){
   settings.pdfCountByMonth = settings.pdfCountByMonth || {};
   settings.viewMode = settings.viewMode || "list"; // list | timeline
   settings.budgetByMonth = settings.budgetByMonth || {}; // { "YYYY-MM": cents }
+  // Nuova opzione auto-save
+  settings.autoSaveAfterPhoto = settings.autoSaveAfterPhoto || false;
   saveSettings();
   // =====================
   //  DEV / TEST PRO AUTO-ENABLE
@@ -679,6 +680,7 @@ function toast(msg, ms=1600){
   const $btnResetApp = $("#btnResetApp");
   const $btnTestOcrKey = $("#btnTestOcrKey");
   const $ocrKeyTestStatus = $("#ocrKeyTestStatus");
+  const $autoSaveAfterPhotoToggle = $("#autoSaveAfterPhotoToggle");
 
   function applyLang(){
     const lang = settings.lang || "it";
@@ -705,6 +707,7 @@ function toast(msg, ms=1600){
     if($ocrEndpointInput) $ocrEndpointInput.value = (settings.ocrEndpoint || "");
     if($ocrAutoSaveToggle) $ocrAutoSaveToggle.checked = !!settings.ocrAutoSave;
     if($langSelect)  $langSelect.value = settings.lang || "it";
+    if($autoSaveAfterPhotoToggle) $autoSaveAfterPhotoToggle.checked = !!settings.autoSaveAfterPhoto;
   }
 
   if($btnSaveSettings){
@@ -717,6 +720,7 @@ function toast(msg, ms=1600){
       settings.ocrEndpoint = ep;
       settings.ocrAutoSave = !!($ocrAutoSaveToggle && $ocrAutoSaveToggle.checked);
       settings.lang = $langSelect?.value || "it";
+      if($autoSaveAfterPhotoToggle) settings.autoSaveAfterPhoto = $autoSaveAfterPhotoToggle.checked;
       saveSettings();
       applyLang();
       toast(settings.lang==="en" ? "Settings saved" : "Impostazioni salvate");
@@ -765,7 +769,9 @@ function openAdd(){
     $("#inDate").value=todayISO();
     $("#inCategory").value="Alimentari";
     $("#inNote").value="";
-    $("#inPhoto").value="";
+    // Pulisci input unificato
+    const unified = $("#inPhotoUnified");
+    if(unified) unified.value = "";
     setPhotoPreview(null);
     showModal("#modalAdd");
     haptic(8);
@@ -773,8 +779,8 @@ function openAdd(){
   function closeAdd(){ hideModal("#modalAdd"); }
 
   function setPhotoPreview(dataUrl){
-    const wrap=$("#photoPrev");
-    const im=$("#photoPrevImg");
+    const wrap=$("#photoPreview");
+    const im=$("#photoPreviewImg");
     if(!dataUrl){
       wrap.style.display="none";
       im.src="";
@@ -817,7 +823,8 @@ function openAdd(){
     $("#inDate").value=x.date;
     $("#inCategory").value=x.category;
     $("#inNote").value=x.note||"";
-    $("#inPhoto").value="";
+    const unified = $("#inPhotoUnified");
+    if(unified) unified.value = "";
     setPhotoPreview(x.photo || null);
 
     closeDetails();
@@ -1005,13 +1012,33 @@ function openAdd(){
     closeScanner();
   }
 
+  // ---------------- AUTO-SAVE AFTER PHOTO ----------------
+  let autoSaveTimer = null;
+  function scheduleAutoSaveAfterPhoto() {
+    if (!settings.autoSaveAfterPhoto) return;
+    const modal = document.getElementById('modalAdd');
+    if (!modal || !modal.classList.contains('show') || editId) return; // solo in aggiunta, non modifica
+
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(() => {
+      if (!modal.classList.contains('show')) return;
+      // Verifica che ci sia almeno una foto
+      const hasPhoto = previewPhoto || (window.__sspReceipt && window.__sspReceipt.file);
+      if (!hasPhoto) return;
+      const btn = document.getElementById('btnSave');
+      if (btn) btn.click();
+    }, 2000); // attende 2 secondi per dare tempo all'OCR
+  }
+
   // ---------------- SAVE / RESET ----------------
   async function onSave(){
     let amountVal = parseEuro($("#inAmount").value);
     let dateVal = $("#inDate").value;
     const category = $("#inCategory").value;
     const note = ($("#inNote").value || "").trim();
-    const file = (window.__sspReceipt?.file) || ($("#inPhoto").files && $("#inPhoto").files[0]);
+    const unified = $("#inPhotoUnified");
+    // Usa l'ultimo file selezionato (già gestito da __sspReceipt)
+    const file = window.__sspReceipt?.file || (unified?.files && unified.files[0]);
 
     // Auto-OCR: se c'è una foto e importo/data non sono validi, prova prima di salvare
     if((!Number.isFinite(amountVal) || amountVal<=0 || !dateVal) && file && window.__sspReceipt?.handle){
@@ -1420,7 +1447,8 @@ function openAdd(){
         isPro: settings.isPro,
         pdfCountByMonth: settings.pdfCountByMonth,
         viewMode: settings.viewMode,
-        budgetByMonth: settings.budgetByMonth
+        budgetByMonth: settings.budgetByMonth,
+        autoSaveAfterPhoto: settings.autoSaveAfterPhoto
       },
       expenses: all
     };
@@ -1463,6 +1491,7 @@ function openAdd(){
         if(typeof payload.settings.viewMode === "string") settings.viewMode = payload.settings.viewMode;
         if(payload.settings.budgetByMonth && typeof payload.settings.budgetByMonth==="object") settings.budgetByMonth = payload.settings.budgetByMonth;
         if(payload.settings.pdfCountByMonth && typeof payload.settings.pdfCountByMonth==="object") settings.pdfCountByMonth = payload.settings.pdfCountByMonth;
+        if(payload.settings.hasOwnProperty('autoSaveAfterPhoto')) settings.autoSaveAfterPhoto = !!payload.settings.autoSaveAfterPhoto;
         saveSettings();
       }
 
@@ -1517,126 +1546,88 @@ function openAdd(){
 $("#addClose").addEventListener("click", closeAdd);
     $("#modalAdd").addEventListener("click", (e)=>{ if(e.target===$("#modalAdd")) closeAdd(); });
 
-    $("#inPhoto").addEventListener("change", async (e)=>{
+    // UNIFIED FILE INPUT HANDLING
+    const unifiedFileInput = $("#inPhotoUnified");
+
+    // Pulsante "Scatta foto"
+    $("#btnReceiptCamera").addEventListener("click", ()=>{
+      unifiedFileInput.setAttribute('capture', 'environment');
+      unifiedFileInput.value = '';
+      unifiedFileInput.click();
+    });
+
+    // Pulsante "Galleria"
+    $("#btnReceiptGallery").addEventListener("click", ()=>{
+      unifiedFileInput.removeAttribute('capture');
+      unifiedFileInput.value = '';
+      unifiedFileInput.click();
+    });
+
+    // Pulsante "Importa PDF"
+    $("#btnReceiptPdf").addEventListener("click", ()=>{
+      unifiedFileInput.setAttribute('accept', 'application/pdf');
+      unifiedFileInput.removeAttribute('capture');
+      unifiedFileInput.value = '';
+      unifiedFileInput.click();
+    });
+
+    unifiedFileInput.addEventListener('change', async (e) => {
       const file = e.target.files && e.target.files[0];
-      previewPhoto=null;
-      if(!file){
-        scanImg=null;
+      previewPhoto = null;
+      scanImg = null;
+      if (!file) {
         setPhotoPreview(null);
-        if(window.__sspReceipt){
+        if (window.__sspReceipt) {
           window.__sspReceipt.file = null;
           window.__sspReceipt.getLastFile = () => null;
         }
         return;
       }
-      try{
-        scanImg = await fileToImage(file);
+
+      // Se è un PDF, converti prima pagina in immagine
+      let imageFile = file;
+      if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+        try {
+          toast("Importo PDF…");
+          imageFile = await pdfFirstPageToImageFile(file);
+        } catch (err) {
+          toast("PDF non valido");
+          return;
+        }
+      }
+
+      try {
+        scanImg = await fileToImage(imageFile);
         const quick = await imageToDataUrl(scanImg, 0, null, 1.0, 0);
         setPhotoPreview(quick);
         previewPhoto = quick;
-        if(window.__sspReceipt){
-          window.__sspReceipt.file = file;
-          window.__sspReceipt.getLastFile = () => file;
+        if (window.__sspReceipt) {
+          window.__sspReceipt.file = imageFile;
+          window.__sspReceipt.getLastFile = () => imageFile;
         }
         toast("Foto caricata ✅");
 
-        // OCR: parte una sola volta e solo dopo che la foto è pronta.
-        // (Evita il problema "devo fare la foto due volte" su Android)
-        try{ await window.__sspReceipt?.handle?.(file, "select"); }catch(_){ }
-      }catch{
-        scanImg=null;
+        // OCR
+        try {
+          await window.__sspReceipt?.handle?.(imageFile, "select");
+        } catch (_) {}
+
+        // Programma auto-save
+        scheduleAutoSaveAfterPhoto();
+
+      } catch {
+        scanImg = null;
         setPhotoPreview(null);
         toast("Foto non valida");
       }
     });
 
-    // Camera input (capture) + dedicated button
-    const inPhotoCam = $("#inPhotoCam");
-    const btnReceiptCamera = $("#btnReceiptCamera");
-    if(btnReceiptCamera && inPhotoCam){
-      btnReceiptCamera.addEventListener("click", ()=> { inPhotoCam.value=""; inPhotoCam.click(); });
-      inPhotoCam.addEventListener("change", async (e)=>{
-        const file = e.target.files && e.target.files[0];
-        previewPhoto=null;
-        if(!file){
-          scanImg=null;
-          setPhotoPreview(null);
-          if(window.__sspReceipt){
-            window.__sspReceipt.file = null;
-            window.__sspReceipt.getLastFile = () => null;
-          }
-          return;
-        }
-        try{
-          scanImg = await fileToImage(file);
-          const quick = await imageToDataUrl(scanImg, 0, null, 1.0, 0);
-          setPhotoPreview(quick);
-          previewPhoto = quick;
-          if(window.__sspReceipt){
-            window.__sspReceipt.file = file;
-            window.__sspReceipt.getLastFile = () => file;
-          }
-          toast("Foto caricata ✅");
-
-          // OCR: parte una sola volta e solo dopo che la foto è pronta.
-          try{ await window.__sspReceipt?.handle?.(file, "select"); }catch(_){ }
-        }catch{
-          scanImg=null;
-          setPhotoPreview(null);
-          toast("Foto non valida");
-        }
-      });
-    }
-
-    // Gallery button (uses the normal file input)
-    const btnReceiptGallery = $("#btnReceiptGallery");
-    if(btnReceiptGallery && $("#inPhoto")){
-      btnReceiptGallery.addEventListener("click", ()=> { const inp=$("#inPhoto"); if(inp) inp.value=""; inp.click(); });
-    }
-
-
-    // PDF import button (renders 1st page → PNG → OCR)
-    const btnReceiptPdf = $("#btnReceiptPdf");
-    const inPdf = $("#inPdf");
-    if(btnReceiptPdf && inPdf){
-      btnReceiptPdf.addEventListener("click", ()=> { try{ inPdf.value=""; }catch(e){} inPdf.click(); });
-      inPdf.addEventListener("change", async (e)=>{
-        const file = e.target.files && e.target.files[0];
-        previewPhoto=null;
-        if(!file){
-          toast("Nessun PDF selezionato");
-          return;
-        }
-        try{
-          toast("Importo PDF…");
-          const pngFile = await pdfFirstPageToPngFile(file);
-          scanImg = await fileToImage(pngFile);
-          const quick = await imageToDataUrl(scanImg, 0, null, 1.0, 0);
-          setPhotoPreview(quick);
-          previewPhoto = quick;
-          if(window.__sspReceipt){
-            window.__sspReceipt.file = pngFile;
-            window.__sspReceipt.getLastFile = () => pngFile;
-          }
-          toast("PDF importato ✅ (1ª pagina)");
-
-          // OCR: una sola volta, dopo import
-          try{ await window.__sspReceipt?.handle?.(pngFile, "pdf"); }catch(_){}
-        }catch(err){
-          console.error(err);
-          toast("PDF non valido / non leggibile");
-        }
-      });
-    }
-
-
-    // Remove photo (support both legacy id and current button id)
+    // Rimozione foto
     const btnRemove = $("#removePhoto") || $("#btnRemovePhoto");
     if(btnRemove) btnRemove.addEventListener("click", ()=>{
-      $("#inPhoto").value="";
-      if($("#inPhotoCam")) $("#inPhotoCam").value="";
-      previewPhoto=null;
-      scanImg=null;
+      unifiedFileInput.value = "";
+      previewPhoto = null;
+      scanImg = null;
       setPhotoPreview(null);
       try{ window.__sspReceipt?.cancelOcr && window.__sspReceipt.cancelOcr(); }catch{}
       try{ const p=document.getElementById("ocrPanel"); if(p) p.style.display="none"; }catch{}
@@ -1650,7 +1641,7 @@ $("#addClose").addEventListener("click", closeAdd);
     });
 
     $("#btnOpenScanner").addEventListener("click", async ()=>{
-      const file = (window.__sspReceipt?.getLastFile && window.__sspReceipt.getLastFile()) || ($("#inPhoto").files && $("#inPhoto").files[0]) || ($("#inPhotoCam").files && $("#inPhotoCam").files[0]);
+      const file = (window.__sspReceipt?.getLastFile && window.__sspReceipt.getLastFile()) || (unifiedFileInput.files && unifiedFileInput.files[0]);
       if(!file){ toast("Prima seleziona una foto"); return; }
       try{ await window.__sspReceipt.handle(file, "manual"); }catch(e){ /* handled inside */ }
     });
@@ -1709,7 +1700,7 @@ $("#addClose").addEventListener("click", closeAdd);
     $("#btnClear").addEventListener("click", ()=>{
       $("#inAmount").value="";
       $("#inNote").value="";
-      $("#inPhoto").value="";
+      unifiedFileInput.value = "";
       previewPhoto=null;
       scanImg=null;
       setPhotoPreview(null);
@@ -1822,6 +1813,7 @@ $("#addClose").addEventListener("click", closeAdd);
     $("#inDate").value = todayISO();
     $("#fMonth").value = monthNow();
     setProUI();
+    syncSettingsForm(); // sincronizza checkbox auto-save
 
     await openDB();
     await refresh();
@@ -1960,8 +1952,9 @@ $("#addClose").addEventListener("click", closeAdd);
 
   const btnCam = $id("btnReceiptCamera");
   const btnGal = $id("btnReceiptGallery");
-  const fileCam = $id("inPhotoCam");
-  const fileGal = $id("inPhoto");
+  // Non usiamo più i vecchi input, ma il nuovo unificato gestito nell'app principale
+  // Quindi qui rimuoviamo i listener sui vecchi input per evitare conflitti.
+  // L'OCR verrà attivato dall'evento change dell'input unificato.
 
   let lastReceiptFile = null;
   // OCR UI actions
@@ -2937,8 +2930,8 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
       // Preview (if UI has #photoPrevImg or #receiptPreview)
       try{
         const url = URL.createObjectURL(imgFile);
-        const im = document.querySelector("#photoPrevImg") || document.querySelector("#receiptPreview");
-        const wrap = document.querySelector("#photoPrev");
+        const im = document.querySelector("#photoPreviewImg") || document.querySelector("#receiptPreview");
+        const wrap = document.querySelector("#photoPreview");
         if(im){
           im.src = url;
           if(wrap) wrap.style.display = "block";
@@ -3187,8 +3180,8 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   async function showPreview(file){
     try{
       const url = URL.createObjectURL(file);
-      const im = document.querySelector("#photoPrevImg") || document.querySelector("#receiptPreview");
-      const wrap = document.querySelector("#photoPrev");
+      const im = document.querySelector("#photoPreviewImg") || document.querySelector("#receiptPreview");
+      const wrap = document.querySelector("#photoPreview");
       if(im){
         im.src = url;
         if(wrap) wrap.style.display="block";
