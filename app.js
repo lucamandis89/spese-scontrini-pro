@@ -1041,7 +1041,7 @@ NEWFILEUID:NONE
     }
   });
 
-  // ===================== FOTOCAMERA AUTOMATICA =====================
+  // ===================== FOTOCAMERA AUTOMATICA (MIGLIORATA) =====================
   let autoCamStream = null;
   let autoCamAnalyzing = false;
   let autoCamGoodFrames = 0;
@@ -1062,9 +1062,11 @@ NEWFILEUID:NONE
         })
         .catch(err => {
           toast("Errore fotocamera: " + err.message);
+          hideModal('#camAutoModal');
         });
     } else {
       toast("Fotocamera non supportata");
+      hideModal('#camAutoModal');
     }
   }
 
@@ -1088,7 +1090,8 @@ NEWFILEUID:NONE
       const mean = sum / (canvas.width * canvas.height);
       const variance = sumSq / (canvas.width * canvas.height) - mean * mean;
       const isGood = variance > 2000;
-      document.getElementById('camAutoStatus').textContent = isGood ? "OK" : "Inquadra meglio";
+      const statusEl = document.getElementById('camAutoStatus');
+      if (statusEl) statusEl.textContent = isGood ? "OK" : "Inquadra meglio";
       if (isGood) {
         autoCamGoodFrames++;
         if (autoCamGoodFrames >= AUTO_CAM_THRESHOLD) {
@@ -1102,7 +1105,7 @@ NEWFILEUID:NONE
     requestAnimationFrame(analyzeAutoFrame);
   }
 
-  function captureAutoFrame() {
+  async function captureAutoFrame() {
     autoCamAnalyzing = false;
     if (autoCamStream) {
       autoCamStream.getTracks().forEach(t => t.stop());
@@ -1114,18 +1117,23 @@ NEWFILEUID:NONE
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
-    canvas.toBlob(blob => {
+    
+    canvas.toBlob(async (blob) => {
       const file = new File([blob], "auto_capture.jpg", { type: "image/jpeg" });
-      handleSelectedImages([file]);
+      const addModal = document.getElementById('modalAdd');
+      if (!addModal || !addModal.classList.contains('show')) {
+        openAdd();
+        await new Promise(r => setTimeout(r, 200));
+      }
+      await handleSelectedImages([file]);
       hideModal('#camAutoModal');
     }, 'image/jpeg', 0.9);
   }
 
   function openAutoCamera() {
-    // Assicuriamoci che il modale di aggiunta sia aperto prima di avviare l'autoscatto
     const addModal = document.getElementById('modalAdd');
     if (!addModal || !addModal.classList.contains('show')) {
-      openAdd(); // apre il modale di aggiunta se non già aperto
+      openAdd();
     }
     showModal('#camAutoModal');
     setTimeout(startAutoCamera, 300);
@@ -1225,56 +1233,58 @@ NEWFILEUID:NONE
     });
   }
 
-  async function handleSelectedImages(fileList){
-    const files = Array.from(fileList||[]).filter(Boolean);
-    if(files.length===0){
-      selectedPhotos=[]; selectedOriginals=[];
-      previewPhoto=null; scanImg=null;
+  // ===================== GESTIONE SELEZIONE IMMAGINI (MIGLIORATA) =====================
+  async function handleSelectedImages(fileList) {
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (files.length === 0) {
+      selectedPhotos = []; selectedOriginals = [];
+      previewPhoto = null; scanImg = null;
       setPhotoPreview(null);
       renderAttachmentsPreview();
-      if(window.__sspReceipt){
+      if (window.__sspReceipt) {
         window.__sspReceipt.file = null;
         window.__sspReceipt.getLastFile = () => null;
       }
       return;
     }
 
-    for(const f of files){
-      try{
+    for (const f of files) {
+      try {
         const img = await fileToImage(f);
         const compressed = await imageToDataUrl(img, 0, null, 1.0, 0);
         selectedPhotos.push(compressed);
-        if(settings.saveOriginals){
-          try{
+        if (settings.saveOriginals) {
+          try {
             const orig = await fileToDataURL(f);
             selectedOriginals.push(orig);
-          }catch(_){
+          } catch (_) {
             selectedOriginals.push(compressed);
           }
         }
-      }catch(e){
-        console.warn("bad image skipped", e);
+      } catch (e) {
+        console.warn("Immagine saltata:", e);
       }
     }
 
     previewPhoto = selectedPhotos[0] || null;
-    if(previewPhoto) setPhotoPreview(previewPhoto);
+    if (previewPhoto) setPhotoPreview(previewPhoto);
     renderAttachmentsPreview();
 
     const first = files[0];
-    if(first && window.__sspReceipt){
+    if (first && window.__sspReceipt) {
       window.__sspReceipt.file = first;
       window.__sspReceipt.getLastFile = () => first;
     }
-    if(first){
-      toast(files.length>1 ? `Allegati ${files.length} scontrini ✅` : "Foto caricata ✅");
-      // Lancia OCR
+    if (first) {
+      toast(files.length > 1 ? `Allegati ${files.length} scontrini ✅` : "Foto caricata ✅");
       try {
         await window.__sspReceipt?.handle?.(first, "select");
-      } catch(e) {
-        toast("Errore OCR: " + (e.message || "riprova"));
+      } catch (e) {
+        toast("Errore OCR: " + (e.message || "controlla console"));
       }
-      try{ scanImg = await fileToImage(first); }catch(_){}
+      try {
+        scanImg = await fileToImage(first);
+      } catch (_) {}
     }
 
     if (settings.ocrAutoSave && canAutoSave()) {
@@ -2189,77 +2199,91 @@ NEWFILEUID:NONE
     }
   }
 
-  // ===================== OCR MODULE =====================
+  // ===================== MODULO OCR (MIGLIORATO CON CONTROLLI) =====================
   window.__sspReceipt = (function() {
     let currentFile = null;
     let abortController = null;
     let lastFile = null;
-  
+
     function getLastFile() { return lastFile; }
-    function cancelOcr() { if(abortController) abortController.abort(); }
-  
+    function cancelOcr() { if (abortController) abortController.abort(); }
+
     async function handle(file, reason) {
       if (!file) return;
+      console.log("OCR handle chiamato con file:", file.name, "reason:", reason);
       currentFile = file;
       lastFile = file;
       abortController = new AbortController();
       const signal = abortController.signal;
-  
+
       try {
         const text = await performOcr(file, signal);
         if (signal.aborted) return;
-  
+
         const ocrPanel = document.getElementById('ocrPanel');
         const ocrTextarea = document.getElementById('ocrText');
         if (ocrPanel) ocrPanel.style.display = 'block';
         if (ocrTextarea) ocrTextarea.value = text;
-  
+
         const normalized = normalizeForRegex(text);
         const amount = parseAmountFromOcr(normalized);
         const date = parseDateFromOcr(normalized);
-  
+
         if (amount && !isNaN(amount) && amount > 0) {
           document.getElementById('inAmount').value = amount.toFixed(2).replace('.', ',');
         }
         if (date) {
           document.getElementById('inDate').value = date;
         }
-  
+
         if (reason !== 'manual') {
           window.dispatchEvent(new CustomEvent('ssp:ocr-filled'));
         }
       } catch (err) {
         if (err.name !== 'AbortError') {
+          console.error("OCR error:", err);
           toast('OCR fallito: ' + err.message);
         }
       } finally {
         abortController = null;
       }
     }
-  
+
     async function performOcr(file, signal) {
       const mode = settings.ocrMode || 'offline';
       const apiKey = settings.ocrSpaceKey || '';
       const endpoint = settings.ocrEndpoint || 'https://api.ocr.space/parse/image';
-  
-      if (mode === 'offline' || (mode === 'auto')) {
-        try {
-          return await performTesseractOcr(file, signal);
-        } catch (err) {
+
+      if (mode === 'offline' || mode === 'auto') {
+        if (typeof Tesseract === 'undefined') {
+          const msg = 'Tesseract non caricato. Usa modalità online o controlla la libreria.';
           if (mode === 'auto' && apiKey) {
-            return await performOcrSpace(file, apiKey, endpoint, signal);
+            console.warn(msg + ' Passo a OCR.Space');
           } else {
-            throw err;
+            throw new Error(msg);
+          }
+        } else {
+          try {
+            return await performTesseractOcr(file, signal);
+          } catch (err) {
+            if (mode === 'auto' && apiKey) {
+              console.warn('Tesseract fallito, passo a OCR.Space:', err);
+              return await performOcrSpace(file, apiKey, endpoint, signal);
+            } else {
+              throw err;
+            }
           }
         }
-      } else if (mode === 'online') {
-        if (!apiKey) throw new Error('API key mancante');
-        return await performOcrSpace(file, apiKey, endpoint, signal);
-      } else {
-        throw new Error('Modalità OCR sconosciuta');
       }
+
+      if (mode === 'online' || (mode === 'auto' && apiKey)) {
+        if (!apiKey) throw new Error('API key mancante per OCR online');
+        return await performOcrSpace(file, apiKey, endpoint, signal);
+      }
+
+      throw new Error('Modalità OCR sconosciuta');
     }
-  
+
     async function performTesseractOcr(file, signal) {
       if (!window.Tesseract) throw new Error('Tesseract non caricato');
       const worker = await Tesseract.createWorker({
@@ -2272,7 +2296,7 @@ NEWFILEUID:NONE
       await worker.terminate();
       return text;
     }
-  
+
     async function performOcrSpace(file, apiKey, endpoint, signal) {
       const formData = new FormData();
       formData.append('file', file);
@@ -2289,7 +2313,7 @@ NEWFILEUID:NONE
       const text = data.ParsedResults.map(p => p.ParsedText).join('\n');
       return text;
     }
-  
+
     function parseAmountFromOcr(text) {
       const patterns = [
         /(?:totale|importo|total|amount|€|eur)\s*[:]?\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)/i,
@@ -2305,7 +2329,7 @@ NEWFILEUID:NONE
       }
       return NaN;
     }
-  
+
     function parseDateFromOcr(text) {
       const patterns = [
         /(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})/,
@@ -2323,7 +2347,7 @@ NEWFILEUID:NONE
       }
       return '';
     }
-  
+
     return {
       get lastFile() { return lastFile; },
       get file() { return currentFile; },
