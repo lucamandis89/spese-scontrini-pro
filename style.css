@@ -2442,18 +2442,3 @@ body.ssp-simple .receiptActions .btn:not(#btnReceiptCameraAuto):not(#btnReceiptC
   right: auto;
   transform: translateX(-50%);
 }
-:root{
-  --bg:#0b0f17;
-  --text:#e7edf7;
-  --muted:#9aa7bd;
-  --border:rgba(255,255,255,.10);
-
-  --card: rgba(16,24,39,.86);
-  --card2: rgba(15,23,42,.65);
-
-  --shadow: 0 14px 40px rgba(0,0,0,.45);
-  --r:20px;
-  --safeBottom: env(safe-area-inset-bottom, 0px);   /* <-- aggiunto */
-}
-
-... (tutto il resto del CSS rimane identico)
