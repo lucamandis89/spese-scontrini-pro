@@ -73,7 +73,7 @@ document.addEventListener('click', (e)=>{
   // =====================
   //  BUILD / CACHE BUST (MIGLIORATO PER CHROME)
   // =====================
-  const BUILD_ID = "v37.4_20260215120000";
+  const BUILD_ID = "v37.8_20260216120000";
   (async () => {
     try {
       const prev = localStorage.getItem("__ssp_build_id") || "";
@@ -340,13 +340,6 @@ function toast(msg, ms=1600){
 
   // ---------------- NAV ----------------
   function showPage(name){
-    // Modalità semplice: blocca Archivio/Report (resta Home + Camera)
-    const __simpleOn = (()=>{ try{return localStorage.getItem("__sspSimpleMode")==="1";}catch(_){return false;} })();
-    if(__simpleOn && (name==="archive" || name==="report")){
-      try{ if(typeof toast==="function") toast("Modalità semplice: disponibili solo Home e Foto 📷"); }catch(_){ }
-      name = "home";
-    }
-
     document.querySelectorAll(".page").forEach(p=>{
       p.classList.toggle("active", p.getAttribute("data-page")===name);
     });
@@ -538,7 +531,7 @@ function toast(msg, ms=1600){
   }
 
   function cafBadgeHtml(cat){
-    return isCaf(cat) ? `<span class="badge caf">⭐ Detraibile (730)</span>` : "";
+    return isCaf(cat) ? `<span class="badge">⭐ Detraibile (730)</span>` : "";
   }
 
   function calcStats(){
@@ -679,7 +672,7 @@ function toast(msg, ms=1600){
   const $btnSaveSettings = $("#btnSaveSettings");
   const $btnResetApp = $("#btnResetApp");
   const $btnTestOcrKey = $("#btnTestOcrKey");
-  const $ocrKeyTestStatus = $("#ocrKeyTestStatus");
+  const $ocrKeyTestStatus = $("#ocrKeyStatus");
   const $autoSaveAfterPhotoToggle = $("#autoSaveAfterPhotoToggle");
 
   function applyLang(){
