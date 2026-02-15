@@ -1,37 +1,27 @@
-// === app.js - v37.4 con cache busting migliorato ===
+// === app.js - v37.5 con toast di debug ===
 (function() {
   "use strict";
 
-  // === CACHE BUSTING: forza il ricaricamento se la build è cambiata ===
-  const BUILD_ID = "v37.4_20260215120000";
+  const BUILD_ID = "v37.5_20260215120000";
   (async () => {
     try {
       const prev = localStorage.getItem("__ssp_build_id") || "";
       if (prev !== BUILD_ID) {
-        console.log("Build cambiata, pulisco cache...");
         localStorage.setItem("__ssp_build_id", BUILD_ID);
-
-        // Disinstalla tutti i service worker
         if ("serviceWorker" in navigator) {
           const regs = await navigator.serviceWorker.getRegistrations();
           await Promise.all(regs.map(r => r.unregister()));
         }
-
-        // Cancella tutte le cache
         if (window.caches) {
           const keys = await caches.keys();
           await Promise.all(keys.map(k => caches.delete(k)));
         }
-
-        // Ricarica la pagina una volta sola
         if (!sessionStorage.getItem("__ssp_reloaded_once")) {
           sessionStorage.setItem("__ssp_reloaded_once", "1");
           location.reload();
         }
       }
-    } catch (e) {
-      console.warn("Cache busting skipped", e);
-    }
+    } catch (e) {}
   })();
 
   const $ = (s) => document.querySelector(s);
@@ -47,11 +37,12 @@
 
   function todayISO() {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
 
   let scanImg = null;
   let selectedPhotos = [];
+  let editId = null;
 
   function setPhotoPreview(dataUrl) {
     const wrap = $('#photoPrev');
@@ -67,8 +58,8 @@
   }
 
   async function handleFile(file) {
+    toast('handleFile iniziato');
     if (!file) return;
-    toast('Elaborazione foto...');
     try {
       const url = URL.createObjectURL(file);
       const img = new Image();
@@ -77,113 +68,132 @@
         setPhotoPreview(url);
         selectedPhotos = [url];
         scanImg = img;
-        toast('Foto caricata, eseguo OCR...');
+        toast('Foto pronta, OCR in 1s');
         setTimeout(() => {
           const amount = $('#inAmount');
           const date = $('#inDate');
           if (amount) amount.value = '47,53';
           if (date) date.value = '2026-02-02';
-          toast('OCR completato');
+          toast('OCR simulato');
         }, 1000);
       };
       img.src = url;
     } catch (e) {
-      toast('Errore');
+      toast('Errore handleFile');
     }
   }
 
   function highlight(el) {
     if (!el) return;
-    const originalBg = el.style.background;
     el.style.background = 'rgba(255,255,0,0.5)';
-    setTimeout(() => el.style.background = originalBg, 200);
+    setTimeout(() => el.style.background = '', 200);
   }
 
-  // Unico listener sul documento
   document.addEventListener('click', (e) => {
     const target = e.target.closest('button, .btn, .fab, .navBtn');
     if (!target) return;
 
     highlight(target);
     const id = target.id;
+    toast('Click su ' + (id || 'pulsante senza id'));
 
-    // Apri modale
     if (id === 'fabAdd' || target.closest('#fabAdd')) {
       e.preventDefault();
-      toast('Apertura modale...');
+      toast('Apro modale');
       editId = null;
       selectedPhotos = [];
       scanImg = null;
       setPhotoPreview(null);
-      $('#inAmount').value = '';
-      $('#inDate').value = todayISO();
-      $('#inCategory').value = 'Alimentari';
-      $('#inNote').value = '';
-      $('#modalAdd')?.classList.add('show');
+      const inAmount = $('#inAmount');
+      if (inAmount) inAmount.value = '';
+      const inDate = $('#inDate');
+      if (inDate) inDate.value = todayISO();
+      const inCategory = $('#inCategory');
+      if (inCategory) inCategory.value = 'Alimentari';
+      const inNote = $('#inNote');
+      if (inNote) inNote.value = '';
+      const modal = $('#modalAdd');
+      if (modal) {
+        modal.classList.add('show');
+        toast('Modale aperto');
+      } else {
+        toast('Modale non trovato');
+      }
       return;
     }
 
-    // Chiudi modale
     if (id === 'addClose' || target.closest('#addClose')) {
       e.preventDefault();
       $('#modalAdd')?.classList.remove('show');
+      toast('Modale chiuso');
       return;
     }
 
-    // Pulsante fotocamera
     if (id === 'btnReceiptCamera' || target.closest('#btnReceiptCamera')) {
       e.preventDefault();
-      $('#inPhotoCam')?.click();
+      const input = $('#inPhotoCam');
+      if (input) {
+        input.click();
+        toast('Click su input camera');
+      } else {
+        toast('input camera non trovato');
+      }
       return;
     }
 
-    // Pulsante galleria
     if (id === 'btnReceiptGallery' || target.closest('#btnReceiptGallery')) {
       e.preventDefault();
-      $('#inPhoto')?.click();
+      const input = $('#inPhoto');
+      if (input) {
+        input.click();
+        toast('Click su input gallery');
+      } else {
+        toast('input gallery non trovato');
+      }
       return;
     }
 
-    // OCR
     if (id === 'btnOpenScanner' || target.closest('#btnOpenScanner')) {
       e.preventDefault();
       if (!scanImg) {
-        toast('Prima seleziona una foto');
+        toast('Nessuna foto');
         return;
       }
-      toast('OCR manuale eseguito');
+      toast('OCR manuale');
       return;
     }
 
-    // Migliora foto
     if (id === 'btnEnhancePhoto' || target.closest('#btnEnhancePhoto')) {
       e.preventDefault();
       if (!scanImg) {
-        toast('Prima seleziona una foto');
+        toast('Nessuna foto');
         return;
       }
-      toast('Apertura scanner (simulato)');
+      toast('Scanner simulato');
       return;
     }
 
-    // Salva
     if (id === 'btnSave' || target.closest('#btnSave')) {
       e.preventDefault();
-      const amount = parseFloat($('#inAmount')?.value.replace(',', '.'));
+      const amountVal = $('#inAmount')?.value;
+      if (!amountVal) {
+        toast('Importo mancante');
+        return;
+      }
+      const amount = parseFloat(amountVal.replace(',', '.'));
       if (isNaN(amount) || amount <= 0) {
         toast('Importo non valido');
         return;
       }
       if (!$('#inDate')?.value) {
-        toast('Data non valida');
+        toast('Data mancante');
         return;
       }
-      toast('Spesa salvata (simulato)');
+      toast('Salvataggio simulato');
       $('#modalAdd')?.classList.remove('show');
       return;
     }
 
-    // Pulisci
     if (id === 'btnClear' || target.closest('#btnClear')) {
       e.preventDefault();
       $('#inAmount').value = '';
@@ -197,7 +207,6 @@
       return;
     }
 
-    // Rimuovi foto
     if (id === 'removePhoto' || target.closest('#removePhoto')) {
       e.preventDefault();
       $('#inPhoto').value = '';
@@ -209,26 +218,24 @@
       return;
     }
 
-    // Navigazione bottom
     if (target.closest('.navBtn')) {
       const nav = target.closest('.navBtn');
       const page = nav.getAttribute('data-nav');
       if (page) {
         e.preventDefault();
-        toast(`Vai a ${page}`);
+        toast('Navigazione: ' + page);
       }
     }
   });
 
-  // Gestione change per input file
   document.addEventListener('change', (e) => {
     const target = e.target;
     if (target.id === 'inPhotoCam' || target.id === 'inPhoto') {
+      toast('File selezionato');
       const file = target.files?.[0];
       if (file) handleFile(file);
     }
   });
 
-  // Toast di avvio
-  setTimeout(() => toast('App pronta', 1500), 500);
+  setTimeout(() => toast('App pronta (debug)', 1500), 500);
 })();
