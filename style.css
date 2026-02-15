@@ -33,7 +33,6 @@ html, body {
   overflow-x: hidden;
 }
 
-/* Header */
 .app-header {
   position: sticky;
   top: 0;
@@ -96,7 +95,6 @@ h1 {
   color: var(--text-muted);
 }
 
-/* Main */
 .app-main {
   max-width: 800px;
   margin: 0 auto;
@@ -110,7 +108,6 @@ h1 {
   display: block;
 }
 
-/* Card */
 .card {
   background: var(--surface);
   border-radius: var(--radius);
@@ -137,7 +134,6 @@ h1 {
   padding: 18px;
 }
 
-/* Stats */
 .stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -165,7 +161,6 @@ h1 {
   color: var(--primary-light);
 }
 
-/* Budget */
 .budget-card {
   background: var(--surface-light);
   border-radius: var(--radius-sm);
@@ -206,7 +201,6 @@ h1 {
   color: var(--text-muted);
 }
 
-/* Buttons */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -252,7 +246,6 @@ h1 {
   color: white;
 }
 
-/* Action row */
 .action-row {
   display: flex;
   flex-wrap: wrap;
@@ -260,7 +253,6 @@ h1 {
   margin: 16px 0;
 }
 
-/* Lists */
 .list {
   display: flex;
   flex-direction: column;
@@ -317,7 +309,6 @@ h1 {
   color: var(--primary-light);
 }
 
-/* Badge */
 .badge {
   display: inline-block;
   background: rgba(16, 185, 129, 0.2);
@@ -330,7 +321,6 @@ h1 {
   white-space: nowrap;
 }
 
-/* Timeline */
 .day-group {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -352,7 +342,6 @@ h1 {
   padding: 12px;
 }
 
-/* Filters */
 .filters-bar {
   display: flex;
   flex-wrap: wrap;
@@ -411,7 +400,6 @@ h1 {
   color: white;
 }
 
-/* Analysis */
 .analysis-card {
   background: var(--surface-light);
   border-radius: var(--radius-sm);
@@ -473,7 +461,6 @@ h1 {
   font-size: 0.9rem;
 }
 
-/* Forms */
 label {
   display: block;
   font-size: 0.8rem;
@@ -502,7 +489,6 @@ input:focus, select:focus, textarea:focus {
   gap: 12px;
 }
 
-/* Modal */
 .modal {
   position: fixed;
   top: 0;
@@ -557,7 +543,6 @@ input:focus, select:focus, textarea:focus {
   padding: 20px;
 }
 
-/* Photo */
 .photo-actions {
   display: flex;
   gap: 10px;
@@ -581,7 +566,6 @@ input:focus, select:focus, textarea:focus {
   border-radius: 10px;
 }
 
-/* OCR */
 .ocr-panel {
   background: var(--surface-light);
   border-radius: var(--radius-sm);
@@ -612,7 +596,6 @@ input:focus, select:focus, textarea:focus {
   resize: vertical;
 }
 
-/* Scanner */
 .scanner-stage {
   background: var(--surface-light);
   border-radius: var(--radius-sm);
@@ -644,7 +627,6 @@ input:focus, select:focus, textarea:focus {
   font-size: 0.7rem;
 }
 
-/* Bottom Navigation - AZZURRA */
 .bottom-nav {
   position: fixed;
   bottom: 0;
@@ -685,7 +667,6 @@ input:focus, select:focus, textarea:focus {
   font-size: 1.4rem;
 }
 
-/* FAB */
 .fab {
   position: fixed;
   width: 56px;
@@ -722,7 +703,6 @@ input:focus, select:focus, textarea:focus {
   font-weight: 800;
 }
 
-/* Toast */
 .toast {
   position: fixed;
   bottom: calc(100px + var(--safe-bottom));
@@ -745,7 +725,6 @@ input:focus, select:focus, textarea:focus {
   display: block;
 }
 
-/* Utilities */
 .text-muted {
   color: var(--text-muted);
 }
@@ -769,7 +748,6 @@ input:focus, select:focus, textarea:focus {
   margin: 12px 0;
 }
 
-/* Responsive */
 @media (max-width: 480px) {
   .grid-2 {
     grid-template-columns: 1fr;
