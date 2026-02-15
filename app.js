@@ -14,7 +14,6 @@ function isDetraibileStrict(cat, ocrText){
 
   const s = String(ocrText||"").toLowerCase();
 
-  // Strong medical keywords only (avoid false positives like "IVA" on normal receipts)
   const strong = [
     "farmacia","ticket","studio dentist","dentist","odontoiatr",
     "visita","prestazione sanitaria","sanitaria","asl","ssn",
@@ -1045,7 +1044,9 @@ NEWFILEUID:NONE
   let autoCamStream = null;
   let autoCamAnalyzing = false;
   let autoCamGoodFrames = 0;
-  const AUTO_CAM_THRESHOLD = 5;
+  const AUTO_CAM_THRESHOLD = 8;         // frame consecutivi richiesti (aumentato)
+  const AUTO_CAM_VARIANCE_MIN = 2500;    // soglia di varianza (più alta = più nitidezza)
+  let autoCamTimeout = null;
 
   function startAutoCamera() {
     const video = document.getElementById('camAutoVideo');
@@ -1058,6 +1059,17 @@ NEWFILEUID:NONE
           video.play();
           autoCamAnalyzing = true;
           autoCamGoodFrames = 0;
+          // Timeout di sicurezza: se dopo 15 secondi non scatta, chiudi
+          autoCamTimeout = setTimeout(() => {
+            if (autoCamAnalyzing) {
+              toast("Tempo scaduto, riprova");
+              hideModal('#camAutoModal');
+              if (autoCamStream) {
+                autoCamStream.getTracks().forEach(t => t.stop());
+                autoCamStream = null;
+              }
+            }
+          }, 15000);
           requestAnimationFrame(analyzeAutoFrame);
         })
         .catch(err => {
@@ -1089,7 +1101,7 @@ NEWFILEUID:NONE
       }
       const mean = sum / (canvas.width * canvas.height);
       const variance = sumSq / (canvas.width * canvas.height) - mean * mean;
-      const isGood = variance > 2000;
+      const isGood = variance > AUTO_CAM_VARIANCE_MIN;
       const statusEl = document.getElementById('camAutoStatus');
       if (statusEl) statusEl.textContent = isGood ? "OK" : "Inquadra meglio";
       if (isGood) {
@@ -1106,6 +1118,7 @@ NEWFILEUID:NONE
   }
 
   async function captureAutoFrame() {
+    if (autoCamTimeout) clearTimeout(autoCamTimeout);
     autoCamAnalyzing = false;
     if (autoCamStream) {
       autoCamStream.getTracks().forEach(t => t.stop());
@@ -1277,6 +1290,7 @@ NEWFILEUID:NONE
     }
     if (first) {
       toast(files.length > 1 ? `Allegati ${files.length} scontrini ✅` : "Foto caricata ✅");
+      // Avvia OCR in automatico
       try {
         await window.__sspReceipt?.handle?.(first, "select");
       } catch (e) {
