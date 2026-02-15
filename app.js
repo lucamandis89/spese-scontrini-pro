@@ -1,11 +1,10 @@
-// === app.js - Versione semplificata per test su telefono ===
+// === app.js - Versione con delega eventi e feedback visivo ===
 (function() {
   "use strict";
 
-  // Helper per selezionare elementi in modo sicuro
   const $ = (s) => document.querySelector(s);
+  const $$ = (s) => document.querySelectorAll(s);
 
-  // Mostra un messaggio temporaneo
   function toast(msg, ms = 2000) {
     const t = $('#toast');
     if (!t) return;
@@ -15,17 +14,14 @@
     window.__toastT = setTimeout(() => t.classList.remove('show'), ms);
   }
 
-  // Funzioni minime di utilità
   function todayISO() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
 
-  // Variabili di stato
-  let scanImg = null;         // per lo scanner (non usato ora)
-  let selectedPhotos = [];    // anteprime
+  let scanImg = null;
+  let selectedPhotos = [];
 
-  // Mostra anteprime (semplificata)
   function setPhotoPreview(dataUrl) {
     const wrap = $('#photoPrev');
     const img = $('#photoPrevImg');
@@ -39,7 +35,6 @@
     }
   }
 
-  // Gestione file selezionato
   async function handleFile(file) {
     if (!file) return;
     toast('Elaborazione foto...');
@@ -52,28 +47,40 @@
         selectedPhotos = [url];
         scanImg = img;
         toast('Foto caricata, eseguo OCR...');
-        // Dopo 1 secondo simula OCR
         setTimeout(() => {
           const amount = $('#inAmount');
           const date = $('#inDate');
           if (amount) amount.value = '47,53';
           if (date) date.value = '2026-02-02';
-          toast('OCR completato: importo e data inseriti');
+          toast('OCR completato');
         }, 1000);
       };
       img.src = url;
     } catch (e) {
-      toast('Errore nel caricamento');
+      toast('Errore');
     }
   }
 
-  // === Attacco eventi dopo il caricamento del DOM ===
-  document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM pronto');
+  // Feedback visivo per i pulsanti
+  function highlight(el) {
+    if (!el) return;
+    const originalBg = el.style.background;
+    el.style.background = 'rgba(255,255,0,0.5)';
+    setTimeout(() => el.style.background = originalBg, 200);
+  }
 
-    // Apri modale aggiunta
-    $('#fabAdd')?.addEventListener('click', () => {
-      console.log('Apri modale');
+  // Unico listener sul documento (delega)
+  document.addEventListener('click', (e) => {
+    const target = e.target.closest('button, .btn, .fab, .navBtn');
+    if (!target) return;
+
+    highlight(target);
+    const id = target.id;
+
+    // Apri modale
+    if (id === 'fabAdd' || target.closest('#fabAdd')) {
+      e.preventDefault();
+      toast('Apertura modale...');
       editId = null;
       selectedPhotos = [];
       scanImg = null;
@@ -83,54 +90,55 @@
       $('#inCategory').value = 'Alimentari';
       $('#inNote').value = '';
       $('#modalAdd')?.classList.add('show');
-    });
+      return;
+    }
 
     // Chiudi modale
-    $('#addClose')?.addEventListener('click', () => {
+    if (id === 'addClose' || target.closest('#addClose')) {
+      e.preventDefault();
       $('#modalAdd')?.classList.remove('show');
-    });
+      return;
+    }
 
     // Pulsante fotocamera
-    $('#btnReceiptCamera')?.addEventListener('click', () => {
+    if (id === 'btnReceiptCamera' || target.closest('#btnReceiptCamera')) {
+      e.preventDefault();
       $('#inPhotoCam')?.click();
-    });
-
-    $('#inPhotoCam')?.addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      if (file) handleFile(file);
-    });
+      return;
+    }
 
     // Pulsante galleria
-    $('#btnReceiptGallery')?.addEventListener('click', () => {
+    if (id === 'btnReceiptGallery' || target.closest('#btnReceiptGallery')) {
+      e.preventDefault();
       $('#inPhoto')?.click();
-    });
+      return;
+    }
 
-    $('#inPhoto')?.addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      if (file) handleFile(file);
-    });
-
-    // Pulsante OCR (offline)
-    $('#btnOpenScanner')?.addEventListener('click', () => {
+    // OCR
+    if (id === 'btnOpenScanner' || target.closest('#btnOpenScanner')) {
+      e.preventDefault();
       if (!scanImg) {
         toast('Prima seleziona una foto');
         return;
       }
-      // Simula OCR (in realtà i campi sono già stati riempiti)
-      toast('OCR eseguito manualmente');
-    });
+      toast('OCR manuale eseguito');
+      return;
+    }
 
-    // Pulsante Migliora foto
-    $('#btnEnhancePhoto')?.addEventListener('click', () => {
+    // Migliora foto
+    if (id === 'btnEnhancePhoto' || target.closest('#btnEnhancePhoto')) {
+      e.preventDefault();
       if (!scanImg) {
         toast('Prima seleziona una foto');
         return;
       }
       toast('Apertura scanner (simulato)');
-    });
+      return;
+    }
 
-    // Pulsante Salva
-    $('#btnSave')?.addEventListener('click', () => {
+    // Salva
+    if (id === 'btnSave' || target.closest('#btnSave')) {
+      e.preventDefault();
       const amount = parseFloat($('#inAmount')?.value.replace(',', '.'));
       if (isNaN(amount) || amount <= 0) {
         toast('Importo non valido');
@@ -142,10 +150,12 @@
       }
       toast('Spesa salvata (simulato)');
       $('#modalAdd')?.classList.remove('show');
-    });
+      return;
+    }
 
-    // Pulsante Pulisci
-    $('#btnClear')?.addEventListener('click', () => {
+    // Pulisci
+    if (id === 'btnClear' || target.closest('#btnClear')) {
+      e.preventDefault();
       $('#inAmount').value = '';
       $('#inNote').value = '';
       $('#inPhoto').value = '';
@@ -154,19 +164,41 @@
       selectedPhotos = [];
       scanImg = null;
       toast('Campi puliti');
-    });
+      return;
+    }
 
     // Rimuovi foto
-    $('#removePhoto')?.addEventListener('click', () => {
+    if (id === 'removePhoto' || target.closest('#removePhoto')) {
+      e.preventDefault();
       $('#inPhoto').value = '';
       $('#inPhotoCam').value = '';
       setPhotoPreview(null);
       selectedPhotos = [];
       scanImg = null;
       toast('Foto rimossa');
-    });
+      return;
+    }
 
-    // Toast di avvio
-    setTimeout(() => toast('App pronta', 1500), 500);
+    // Navigazione bottom
+    if (target.closest('.navBtn')) {
+      const nav = target.closest('.navBtn');
+      const page = nav.getAttribute('data-nav');
+      if (page) {
+        e.preventDefault();
+        toast(`Vai a ${page}`);
+      }
+    }
   });
+
+  // Gestione change per input file
+  document.addEventListener('change', (e) => {
+    const target = e.target;
+    if (target.id === 'inPhotoCam' || target.id === 'inPhoto') {
+      const file = target.files?.[0];
+      if (file) handleFile(file);
+    }
+  });
+
+  // Toast di avvio
+  setTimeout(() => toast('App pronta', 1500), 500);
 })();
