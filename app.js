@@ -1,8 +1,9 @@
-// === app.js - v38.1 FINALE con anteprima funzionante ===
+// === app.js - VERSIONE FINALE STABILE ===
 (function() {
   "use strict";
 
-  const BUILD_ID = "v38.1_20260215200000";
+  // === CACHE BUSTING: forza il ricaricamento se la build cambia ===
+  const BUILD_ID = "v39.0_20260215220000";
   (async () => {
     try {
       const prev = localStorage.getItem("__ssp_build_id") || "";
@@ -24,6 +25,7 @@
     } catch (e) {}
   })();
 
+  // === HELPER ===
   const $ = (s) => document.querySelector(s);
 
   function toast(msg, ms = 2000) {
@@ -40,10 +42,12 @@
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
 
+  // === STATO ===
   let scanImg = null;
   let selectedPhotos = [];
   let editId = null;
 
+  // === ANTEPRIMA FOTO ===
   function setPhotoPreview(dataUrl) {
     const wrap = $('#photoPrev');
     const img = $('#photoPrevImg');
@@ -62,6 +66,7 @@
     }
   }
 
+  // === GESTIONE FILE (usando FileReader per dataURL persistente) ===
   async function handleFile(file) {
     toast('Elaborazione file...');
     if (!file) return;
@@ -76,12 +81,13 @@
           selectedPhotos = [dataUrl];
           scanImg = img;
           toast('Foto caricata, OCR in corso...');
+          // Simula OCR dopo 1 secondo
           setTimeout(() => {
             const amount = $('#inAmount');
             const date = $('#inDate');
             if (amount) amount.value = '47,53';
             if (date) date.value = '2026-02-02';
-            toast('OCR completato');
+            toast('OCR completato (simulato)');
           }, 1000);
         };
         img.onerror = () => toast('Immagine non valida');
@@ -94,6 +100,7 @@
     }
   }
 
+  // === FEEDBACK VISIVO SUI PULSANTI ===
   function highlight(el) {
     if (!el) return;
     const original = el.style.background;
@@ -101,6 +108,7 @@
     setTimeout(() => el.style.background = original, 200);
   }
 
+  // === LISTENER GLOBALE (DELEGA) ===
   document.addEventListener('click', (e) => {
     const target = e.target.closest('button, .btn, .fab, .navBtn');
     if (!target) return;
@@ -108,7 +116,7 @@
     highlight(target);
     const id = target.id;
 
-    // FAB Aggiungi
+    // FAB Aggiungi spesa
     if (id === 'fabAdd' || target.closest('#fabAdd')) {
       e.preventDefault();
       editId = null;
@@ -152,7 +160,7 @@
         toast('Prima seleziona una foto');
         return;
       }
-      toast('OCR manuale eseguito');
+      toast('OCR manuale eseguito (simulato)');
       return;
     }
 
@@ -215,7 +223,7 @@
       return;
     }
 
-    // Navigazione bottom
+    // Navigazione bottom bar
     if (target.closest('.navBtn')) {
       const nav = target.closest('.navBtn');
       const page = nav.getAttribute('data-nav');
@@ -226,6 +234,7 @@
     }
   });
 
+  // === GESTIONE SELEZIONE FILE ===
   document.addEventListener('change', (e) => {
     const target = e.target;
     if (target.id === 'inPhotoCam' || target.id === 'inPhoto') {
@@ -234,5 +243,12 @@
     }
   });
 
-  setTimeout(() => toast('App pronta'), 1000);
+  // === VERIFICA ELEMENTI PRINCIPALI E AVVIO ===
+  setTimeout(() => {
+    const required = ['fabAdd', 'modalAdd', 'inPhoto', 'inPhotoCam', 'btnSave', 'photoPrev', 'photoPrevImg'];
+    required.forEach(id => {
+      if (!$(`#${id}`)) console.warn(`Elemento #${id} mancante nel DOM`);
+    });
+    toast('App pronta');
+  }, 1000);
 })();
