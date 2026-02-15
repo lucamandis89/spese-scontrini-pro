@@ -61,13 +61,176 @@ document.addEventListener('click', (e)=>{
     devParamName: "devpro"
   };
 
-  // ===================== STUB PER FUNZIONI MANCANTI =====================
-  function exportQif() { toast("Esportazione QIF non ancora implementata"); }
-  function exportOfx() { toast("Esportazione OFX non ancora implementata"); }
-  function shareCurrentReport() { toast("Condivisione report non ancora implementata"); }
-  function exportChartImage() { toast("Esportazione grafico non ancora implementata"); }
+  // ===================== FUNZIONI DI ESPORTAZIONE/CONDIVISIONE =====================
+  function exportQif() {
+    const month = $("#rMonth")?.value || monthNow();
+    const list = all.filter(x => (x.month || yyyymm(x.date)) === month && x.type !== "recurring_template");
+    if(list.length === 0) { toast("Nessuna spesa per questo mese"); return; }
+    list.sort((a,b) => (a.date||"").localeCompare(b.date||""));
+    let qif = "!Type:Bank\n";
+    list.forEach(x => {
+      const date = x.date.replace(/-/g, '/'); // QIF spesso usa / come separatore
+      qif += `D${date}\n`;
+      qif += `T-${x.amount.toFixed(2)}\n`; // negativo per uscita
+      if(x.note) qif += `M${x.note}\n`;
+      qif += `P${x.category}\n`;
+      qif += "^\n";
+    });
+    const blob = new Blob([qif], {type: 'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `spese_${month}.qif`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("Esportazione QIF completata ✅");
+  }
+
+  function exportOfx() {
+    const month = $("#rMonth")?.value || monthNow();
+    const list = all.filter(x => (x.month || yyyymm(x.date)) === month && x.type !== "recurring_template");
+    if(list.length === 0) { toast("Nessuna spesa per questo mese"); return; }
+    list.sort((a,b) => (a.date||"").localeCompare(b.date||""));
+
+    const ofxHeader = `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>${new Date().toISOString().replace(/[-:]/g,'').split('.')[0]}[0:GMT]
+<LANGUAGE>ENG
+</SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<STMTRS>
+<CURDEF>EUR
+<BANKACCTFROM>
+<BANKID>00000
+<ACCTID>123456
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>${month}-01
+<DTEND>${month}-31
+`;
+
+    let transactions = '';
+    list.forEach(x => {
+      const date = x.date.replace(/-/g, '');
+      transactions += `<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>${date}
+<TRNAMT>-${x.amount.toFixed(2)}
+<FITID>${x.id}
+<NAME>${x.category}
+<MEMO>${x.note || ''}
+</STMTTRN>
+`;
+    });
+
+    const ofxFooter = `</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>0.00
+<DTASOF>${new Date().toISOString().replace(/[-:]/g,'').split('.')[0]}
+</LEDGERBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>`;
+
+    const ofxContent = ofxHeader + transactions + ofxFooter;
+    const blob = new Blob([ofxContent], {type: 'application/x-ofx'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `spese_${month}.ofx`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("Esportazione OFX completata ✅");
+  }
+
+  async function shareCurrentReport() {
+    const mode = $("#rMode")?.value || "month";
+    const month = $("#rMonth")?.value || monthNow();
+    if(!canGeneratePdf()) return; // controllo limiti free
+    let list = all.filter(x => (x.month || yyyymm(x.date)) === month && x.type !== "recurring_template");
+    if(mode === "caf") list = list.filter(x => isCaf(x.category));
+    if(list.length === 0) { toast("Nessuna spesa per il report"); return; }
+    list.sort((a,b) => (a.date||"").localeCompare(b.date||""));
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:"pt", format:"a4" });
+    // ... (stessa logica di generazione PDF di generatePdf, ma senza salvare)
+    // Per brevità, riutilizziamo la funzione buildPdfBlobFromList già esistente
+    const title = mode === "caf" ? "Report CAF/ISEE" : "Report Mensile";
+    const rangeLabel = `Mese: ${month}`;
+    const pdfBlob = await buildPdfBlobFromList(mode, title, rangeLabel, list);
+    if(!pdfBlob) { toast("Errore generazione PDF"); return; }
+
+    const fileName = mode === "caf" ? `Report_730_${month}.pdf` : `Report_Mese_${month}.pdf`;
+    const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+    try {
+      if(navigator.share && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: 'Report Spese',
+          files: [file]
+        });
+        toast("Report condiviso ✅");
+      } else {
+        // Fallback: download
+        const url = URL.createObjectURL(pdfBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast("Report scaricato ✅");
+      }
+    } catch(e) {
+      toast("Condivisione fallita");
+    }
+  }
+
+  function exportChartImage() {
+    const canvas = document.getElementById('anaCanvas');
+    if(!canvas) { toast("Grafico non trovato"); return; }
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `grafico_${$("#rMonth")?.value || monthNow()}.png`;
+    a.click();
+    toast("Grafico esportato ✅");
+  }
+
+  // ===================== STUB PER FUNZIONI MANCANTI (ora implementate) =====================
+  // (Le funzioni sopra sostituiscono gli stub, quindi possiamo rimuovere le dichiarazioni precedenti o sovrascriverle)
+  // Per evitare conflitti, commentiamo le vecchie definizioni.
+  // function exportQif() { toast("Esportazione QIF non ancora implementata"); }
+  // function exportOfx() { toast("Esportazione OFX non ancora implementata"); }
+  // function shareCurrentReport() { toast("Condivisione report non ancora implementata"); }
+  // function exportChartImage() { toast("Esportazione grafico non ancora implementata"); }
+
+  // Manteniamo la funzione calcTax invariata
   function calcTax() {
-    // implementazione minima per evitare errori
     const revenue = parseFloat($("#taxRevenue")?.value || 0);
     const coeff = parseFloat($("#taxCoeff")?.value || 78) / 100;
     const rate = parseFloat($("#taxRate")?.value || 15) / 100;
@@ -2292,7 +2455,7 @@ async function autoCropScanner(){
     };
   })();
 
-  // ===================== FUNZIONE TEST OCR.SPACE (spostata dentro l'IIFE) =====================
+  // ===================== FUNZIONE TEST OCR.SPACE =====================
   async function testOcrSpaceKey() {
     const key = settings.ocrSpaceKey || '';
     if (!key) return { ok: false, error: 'Chiave non inserita' };
