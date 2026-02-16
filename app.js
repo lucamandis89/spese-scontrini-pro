@@ -1,3 +1,5 @@
+[file name]: app.js
+[file content begin]
 async function setLastReceiptFromFile(file){
   if(!file) return;
   lastReceiptBlob = file;
@@ -46,6 +48,10 @@ document.addEventListener('click', (e)=>{
 (() => {
   "use strict";
 
+  // === DEBUG FLAG (set to false for production) ===
+  const DEBUG = false;
+  function log(...args) { if (DEBUG) console.log(...args); }
+
   const APP = {
     dbName: "spese_scontrini_pro_db",
     dbVersion: 1,
@@ -55,9 +61,9 @@ document.addEventListener('click', (e)=>{
     freeLimitPdfPerMonth: 3,
     photoMaxSide: 1600,
     photoJpegQuality: 0.78,
-    // TEST BUILD: auto-enable PRO for device/app testing. Set to false for Play Store release.
-    devAutoPro: true,
-    // Optional URL param to force PRO without touching code: ?devpro=1
+    // PRODUCTION: disable dev auto-pro
+    devAutoPro: false,
+    // Optional URL param to force PRO without touching code: ?devpro=1 (only works on localhost now)
     devParamName: "devpro"
   };
 
@@ -97,7 +103,7 @@ document.addEventListener('click', (e)=>{
           location.reload();
         }
       }
-    } catch(e) { console.warn("cache-bust skipped", e); }
+    } catch(e) { log("cache-bust skipped", e); }
   })();
 
   const $ = (s) => document.querySelector(s);
@@ -108,10 +114,6 @@ document.addEventListener('click', (e)=>{
       if(el) el.addEventListener(ev, fn, opts);
     }catch(e){ /* never block */ }
   };
-
-
-
-
 
 // =====================
 //  PRO (Free + Pro) framework
@@ -298,11 +300,15 @@ function toast(msg, ms=1600){
   // Nuova opzione auto-save
   settings.autoSaveAfterPhoto = settings.autoSaveAfterPhoto || false;
   saveSettings();
+
   // =====================
-  //  DEV / TEST PRO AUTO-ENABLE
+  //  DEV / TEST PRO AUTO-ENABLE (only on localhost now)
   // =====================
   (function(){
     try{
+      // Only enable auto-pro on localhost for development
+      if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
+
       const p = new URLSearchParams(location.search || "");
       const disable = p.get("nopro") === "1";
       const hasParam = p.get(APP.devParamName) === "1" || p.get("pro") === "1";
@@ -1542,26 +1548,38 @@ $("#addClose").addEventListener("click", closeAdd);
     // UNIFIED FILE INPUT HANDLING
     const unifiedFileInput = $("#inPhotoUnified");
 
-    // Pulsante "Scatta foto"
+    // Pulsante "Scatta foto" - con gestione errori
     $("#btnReceiptCamera").addEventListener("click", ()=>{
-      unifiedFileInput.setAttribute('capture', 'environment');
-      unifiedFileInput.value = '';
-      unifiedFileInput.click();
+      try {
+        unifiedFileInput.setAttribute('capture', 'environment');
+        unifiedFileInput.value = '';
+        unifiedFileInput.click();
+      } catch (e) {
+        toast("Impossibile aprire la fotocamera. Controlla i permessi.", 2000);
+      }
     });
 
-    // Pulsante "Galleria"
+    // Pulsante "Galleria" - con gestione errori
     $("#btnReceiptGallery").addEventListener("click", ()=>{
-      unifiedFileInput.removeAttribute('capture');
-      unifiedFileInput.value = '';
-      unifiedFileInput.click();
+      try {
+        unifiedFileInput.removeAttribute('capture');
+        unifiedFileInput.value = '';
+        unifiedFileInput.click();
+      } catch (e) {
+        toast("Impossibile aprire la galleria. Controlla i permessi.", 2000);
+      }
     });
 
     // Pulsante "Importa PDF"
     $("#btnReceiptPdf").addEventListener("click", ()=>{
-      unifiedFileInput.setAttribute('accept', 'application/pdf');
-      unifiedFileInput.removeAttribute('capture');
-      unifiedFileInput.value = '';
-      unifiedFileInput.click();
+      try {
+        unifiedFileInput.setAttribute('accept', 'application/pdf');
+        unifiedFileInput.removeAttribute('capture');
+        unifiedFileInput.value = '';
+        unifiedFileInput.click();
+      } catch (e) {
+        toast("Impossibile aprire il selettore file.", 2000);
+      }
     });
 
     unifiedFileInput.addEventListener('change', async (e) => {
@@ -1729,14 +1747,7 @@ $("#addClose").addEventListener("click", closeAdd);
       renderArchive();
     });
 
-    $("#btnProToggle").addEventListener("click", ()=>{
-      const ok = confirm(settings.isPro ? "Disattivare PRO (test)?" : "Attivare PRO (test) su questo dispositivo?");
-      if(!ok) return;
-      settings.isPro = !settings.isPro;
-      saveSettings();
-      setProUI();
-      toast(settings.isPro ? "PRO attivo (test)" : "FREE attivo");
-    });
+    // Rimosso il pulsante "Test PRO" (btnProToggle) dalla UI e dal codice
 
     $("#rMonth").value = monthNow();
     $("#rMonth").addEventListener("change", renderAnalysis);
@@ -2816,16 +2827,52 @@ document.addEventListener('keydown', (e)=>{
   }
 });
 
+// Bridge per acquisti in-app (verrà popolato dal codice nativo)
+window.androidBilling = {
+  startPurchase: function(sku) {
+    log('Billing startPurchase called with sku:', sku);
+    // Verrà sovrascritto dal codice nativo
+  },
+  checkPurchases: function() {
+    log('Billing checkPurchases called');
+    return Promise.resolve(false);
+  }
+};
+
 document.addEventListener("click",(e)=>{
   if(e.target && e.target.id==="btnClosePro"){
     hideModal("#modalPro");
   }
   if(e.target && e.target.id==="btnBuyPro"){
     // Placeholder: in APK/TWA we will call Google Play Billing bridge.
-    // For now we allow a safe "demo unlock" toggle to test UI.
-    setPro(true);
-    hideModal("#modalPro");
-    try{ toast("PRO attivato (demo) ✅", 1200); }catch(err){}
+    if (window.androidBilling && window.androidBilling.startPurchase) {
+      window.androidBilling.startPurchase("scontrini_facili_pro_one_time");
+    } else {
+      // Fallback per test su browser (solo localhost)
+      if (location.hostname === 'localhost') {
+        setPro(true);
+        hideModal("#modalPro");
+        try{ toast("PRO attivato (demo) ✅", 1200); }catch(err){}
+      } else {
+        toast("Acquisto non disponibile", 2000);
+      }
+    }
+  }
+  if(e.target && e.target.id==="btnRestorePurchases"){
+    if (window.androidBilling && window.androidBilling.checkPurchases) {
+      window.androidBilling.checkPurchases().then(isPro => {
+        if (isPro) {
+          setPro(true);
+          toast("Acquisto ripristinato ✅");
+        } else {
+          toast("Nessun acquisto da ripristinare");
+        }
+      }).catch(() => {
+        toast("Errore durante il ripristino");
+      });
+    } else {
+      toast("Funzione non disponibile");
+    }
   }
 });
 document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
@@ -2845,7 +2892,7 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   if (window.__SSP_PDF_PERSIST_V4) return;
   window.__SSP_PDF_PERSIST_V4 = true;
 
-  const log = (...a)=>{ try{ console.log("[PDF PERSIST v4]", ...a); }catch(_){} };
+  const log = (...a)=>{ try{ if (DEBUG) console.log("[PDF PERSIST v4]", ...a); }catch(_){} };
   const toastSafe = (m)=>{ try{ if(typeof toast==="function") toast(m); }catch(_){ try{ alert(m);}catch(_){} } };
 
   function loadScriptOnce(src){
@@ -2987,7 +3034,7 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   if(window.__SSP_PDF_THUMB_GUARANTEE_V5) return;
   window.__SSP_PDF_THUMB_GUARANTEE_V5 = true;
 
-  const log=(...a)=>{try{console.log("[PDF THUMB v5]",...a)}catch(_){}};
+  const log=(...a)=>{try{if (DEBUG) console.log("[PDF THUMB v5]",...a)}catch(_){}};
 
   // Wrap any existing PDF import handler if present
   // If previous patches set __sspReceipt.file, we additionally persist it.
@@ -3078,7 +3125,7 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   if (window.__SSP_MULTI_BATCH_V1) return;
   window.__SSP_MULTI_BATCH_V1 = true;
 
-  const log = (...a)=>{ try{ console.log("[MULTI BATCH v1]", ...a); }catch(_){} };
+  const log = (...a)=>{ try{ if (DEBUG) console.log("[MULTI BATCH v1]", ...a); }catch(_){} };
 
   const toastSafe = (m, ms)=>{
     try{
@@ -3308,7 +3355,7 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   if (window.__SSP_MULTI_BATCH_V2) return;
   window.__SSP_MULTI_BATCH_V2 = true;
 
-  const log = (...a)=>{ try{ console.log("[MULTI BATCH v2]", ...a); }catch(_){} };
+  const log = (...a)=>{ try{ if (DEBUG) console.log("[MULTI BATCH v2]", ...a); }catch(_){} };
   const toastSafe = (m, ms)=>{ try{ if(typeof toast==="function") toast(m, ms||1400); }catch(_){ } };
 
   const $ = (s)=>document.querySelector(s);
@@ -3443,6 +3490,7 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
   // ---- batch core
   let busy = false;
+  const MAX_BATCH_SIZE = 15; // limite per evitare blocchi
   window.__sspMultiProcessedKeys = window.__sspMultiProcessedKeys || {};
   function fileKey(f){
     try{ return [f.name||"", f.size||0, f.lastModified||0, f.type||""].join("::"); }catch(_){ return String(Math.random()); }
@@ -3454,6 +3502,10 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
     try{
       const arr = Array.from(files||[]);
       const total = arr.length;
+      if (total > MAX_BATCH_SIZE) {
+        toastSafe(`Troppi file! Max ${MAX_BATCH_SIZE} per batch.`, 2000);
+        return;
+      }
       toastSafe(`Batch: ${total} file…`);
 
       for(let i=0;i<total;i++){
@@ -3533,7 +3585,7 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   if (window.__SSP_BATCH_PROGRESS_UI_V1) return;
   window.__SSP_BATCH_PROGRESS_UI_V1 = true;
 
-  const log = (...a)=>{ try{ console.log("[BATCH UI]", ...a); }catch(_){} };
+  const log = (...a)=>{ try{ if (DEBUG) console.log("[BATCH UI]", ...a); }catch(_){} };
 
   // state
   window.__sspBatchProgress = window.__sspBatchProgress || { active:false, i:0, total:0, label:"", cancel:false };
@@ -4219,3 +4271,9 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   // Also listen to the app custom event (when present)
   window.addEventListener('ssp:ocr-filled', ()=>{ tryAutoSaveSoon(); }, {passive:true});
 })();
+
+// Aggiunto listener per il tasto back di Android
+window.addEventListener('popstate', () => {
+  hideAllModals();
+});
+[file content end]
