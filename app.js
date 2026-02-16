@@ -4232,12 +4232,45 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
 /* ================================
    PATCH: Eliminazione rapida (cestino)
-   Aggiunge un'icona cestino su ogni spesa nelle liste
+   Aggiunge un'icona cestino su ogni spesa, posizionata sopra l'anteprima foto
    ================================ */
 (function() {
   "use strict";
   if (window.__SSP_QUICK_DELETE_PATCH) return;
   window.__SSP_QUICK_DELETE_PATCH = true;
+
+  // Inietta uno stile per il pulsante di eliminazione
+  const style = document.createElement('style');
+  style.textContent = `
+    .delete-item-btn {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      background: rgba(0, 0, 0, 0.6);
+      color: white;
+      border-radius: 50%;
+      width: 22px;
+      height: 22px;
+      font-size: 16px;
+      line-height: 20px;
+      text-align: center;
+      cursor: pointer;
+      z-index: 10;
+      opacity: 0.8;
+      transition: opacity 0.1s;
+      display: block;
+      text-decoration: none;
+      border: 1px solid rgba(255,255,255,0.3);
+    }
+    .delete-item-btn:hover {
+      opacity: 1;
+      background: rgba(0, 0, 0, 0.8);
+    }
+    .thumb {
+      position: relative;
+    }
+  `;
+  document.head.appendChild(style);
 
   function init() {
     const core = window.__sspCore;
@@ -4254,16 +4287,15 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
         if (item.querySelector('.delete-item-btn')) return;
         const id = item.getAttribute('data-open');
         if (!id) return;
-        const amtDiv = item.querySelector('.amt');
-        if (!amtDiv) return;
+        const thumbDiv = item.querySelector('.thumb');
+        if (!thumbDiv) return;
 
         const delBtn = document.createElement('span');
         delBtn.className = 'delete-item-btn';
         delBtn.dataset.id = id;
         delBtn.innerHTML = '🗑️';
-        delBtn.style.cssText = 'margin-left:8px;cursor:pointer;font-size:1.2rem;opacity:0.7;transition:opacity 0.1s;display:inline-block;';
-        delBtn.addEventListener('mouseenter', () => delBtn.style.opacity = '1');
-        delBtn.addEventListener('mouseleave', () => delBtn.style.opacity = '0.7');
+        delBtn.setAttribute('aria-label', 'Elimina spesa');
+        delBtn.setAttribute('title', 'Elimina spesa');
 
         delBtn.addEventListener('click', async (e) => {
           e.stopPropagation();
@@ -4280,7 +4312,7 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
           }
         });
 
-        amtDiv.appendChild(delBtn);
+        thumbDiv.appendChild(delBtn);
       });
     }
 
