@@ -58,7 +58,7 @@ document.addEventListener('click', (e)=>{
     photoMaxSide: 1600,
     photoJpegQuality: 0.78,
     // TEST BUILD: auto-enable PRO for device/app testing. Set to false for Play Store release.
-    devAutoPro: false,
+    devAutoPro: true,
     // Optional URL param to force PRO without touching code: ?devpro=1
     devParamName: "devpro"
   };
@@ -1817,20 +1817,6 @@ $("#addClose").addEventListener("click", closeAdd);
     
   })();
 
-  // Esponi le funzioni necessarie per le patch (aggiungi prima della chiusura dell'IIFE)
-  window.__sspCore = {
-    dbDelete: dbDelete,
-    dbPut: dbPut,
-    dbGetAll: dbGetAll,
-    refresh: refresh,
-    toast: toast,
-    wipeAll: wipeAll,
-    openAdd: openAdd,
-    showModal: showModal,
-    hideModal: hideModal,
-    // se servono altre funzioni, aggiungile qui
-  };
-
 })();
 
 
@@ -3072,88 +3058,1167 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   }, 500);
 
 })();
-
 /* ================================
-   PATCH: Eliminazione rapida + Reset totale in Home (con try/catch)
+   MULTI BATCH IMPORT v1 (CHIRURGICO, APPEND-ONLY)
+   Goal:
+   - Select multiple PHOTOS or multiple PDF in ONE picker open
+   - App processes them ALL sequentially (no re-open), creating entries and showing them in Home automatically.
+   - A prova di bug: guards against duplicate processing, continues on errors, never touches other features.
+   How it works:
+   - Forces multiple=true on the existing photo/pdf inputs (if present).
+   - Intercepts ONLY multi-selection change events (files.length>1) in CAPTURE phase.
+   - Runs a sequential queue:
+        photo -> feed to existing pipeline (__sspReceipt.handle / handleReceiptOCR)
+        pdf   -> converts page1 -> image then feeds pipeline
+   - Triggers safe UI refresh after each item.
+   Notes:
+   - Requires your existing single-file flow to be working (it is).
+   - Does NOT change your "single file" behavior.
    ================================ */
 (function(){
-  try {
-    if (window.__SSP_QUICK_DELETE_PATCH) return;
-    window.__SSP_QUICK_DELETE_PATCH = true;
+  "use strict";
+  if (window.__SSP_MULTI_BATCH_V1) return;
+  window.__SSP_MULTI_BATCH_V1 = true;
 
-    const $ = (s) => document.querySelector(s);
-    const $$ = (s) => Array.from(document.querySelectorAll(s));
-    const core = window.__sspCore;
-    if (!core) {
-      console.warn("__sspCore non disponibile, patch eliminazione rapida saltata");
-      return;
+  const log = (...a)=>{ try{ console.log("[MULTI BATCH v1]", ...a); }catch(_){} };
+
+  const toastSafe = (m, ms)=>{
+    try{
+      if(typeof toast === "function") toast(m, ms||1400);
+      else console.log(m);
+    }catch(_){}
+  };
+
+  // ---------- ensure inputs allow multiple
+  function forceMultiInputs(){
+    try{
+      const inputs = document.querySelectorAll("input[type='file']");
+      inputs.forEach(inp=>{
+        const acc = String(inp.accept||"").toLowerCase();
+        if(acc.includes("image") || acc.includes("pdf")){
+          inp.multiple = true;
+        }
+      });
+
+      // known ids (best effort)
+      ["inPhoto__stable_v1","inPhoto__oneTap_v2","inPhoto","inPhotoCam","inReceiptPhoto"].forEach(id=>{
+        const el = document.getElementById(id);
+        if(el && el.type==="file"){ el.multiple = true; if(!String(el.accept||"").toLowerCase().includes("image")) el.accept="image/*"; }
+      });
+      ["inPdf__stable_v1","inPdf__multi_v2","inPdf","inReceiptPdf"].forEach(id=>{
+        const el = document.getElementById(id);
+        if(el && el.type==="file"){ el.multiple = true; if(!String(el.accept||"").toLowerCase().includes("pdf")) el.accept="application/pdf"; }
+      });
+    }catch(_){}
+  }
+  document.addEventListener("DOMContentLoaded", forceMultiInputs);
+  setTimeout(forceMultiInputs, 700);
+  setTimeout(forceMultiInputs, 2000);
+
+  // ---------- pdf helpers
+  function loadScriptOnce(src){
+    window.__sspScripts = window.__sspScripts || {};
+    if(window.__sspScripts[src]) return window.__sspScripts[src];
+    window.__sspScripts[src] = new Promise((res, rej)=>{
+      const s=document.createElement("script");
+      s.src=src; s.async=true;
+      s.onload=()=>res(true);
+      s.onerror=()=>rej(new Error("Load failed: "+src));
+      document.head.appendChild(s);
+    });
+    return window.__sspScripts[src];
+  }
+  async function ensurePdfJsReady(){
+    if(window.pdfjsLib && window.__sspPdfReady) return true;
+    if(!window.pdfjsLib){
+      await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
     }
-
-    async function refreshAfterDelete() {
-      if (core && core.refresh) await core.refresh();
+    if(!window.pdfjsLib) throw new Error("PDF.js missing");
+    try{
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    }catch(_){}
+    window.__sspPdfReady = true;
+    return true;
+  }
+  function isPdfFile(f){
+    const name = String(f?.name||"").toLowerCase();
+    return f?.type === "application/pdf" || name.endsWith(".pdf");
+  }
+  function isImageFile(f){
+    return String(f?.type||"").startsWith("image/");
+  }
+  async function pdfFirstPageToImage(pdfFile){
+    if(typeof window.__sspPdfFirstPageToPngFile === "function"){
+      return await window.__sspPdfFirstPageToPngFile(pdfFile);
     }
+    if(typeof window.__sspPdfFirstPageToImageFile === "function"){
+      return await window.__sspPdfFirstPageToImageFile(pdfFile);
+    }
+    await ensurePdfJsReady();
+    const buf = await pdfFile.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.6 });
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+    canvas.width  = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const blob = await new Promise((res)=>canvas.toBlob(res, "image/jpeg", 0.92));
+    if(!blob) throw new Error("PDF render failed");
+    const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
+    return new File([blob], name, { type:"image/jpeg" });
+  }
 
-    function handleDeleteClick(e) {
-      const btn = e.target.closest('.delete-item-btn');
-      if (!btn) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const id = btn.dataset.id;
-      if (!id) return;
-      if (!confirm("Eliminare questa spesa?")) return;
-      if (core && core.dbDelete) {
-        core.dbDelete(id).then(() => {
-          if (core && core.toast) core.toast("Spesa eliminata ✅");
-          refreshAfterDelete();
-        }).catch(() => alert("Errore durante l'eliminazione"));
-      } else {
-        alert("Funzione di eliminazione non disponibile");
+  // ---------- preview + pipeline
+  async function showPreview(file){
+    try{
+      const url = URL.createObjectURL(file);
+      const im = document.querySelector("#photoPreviewImg") || document.querySelector("#receiptPreview");
+      const wrap = document.querySelector("#photoPreview");
+      if(im){
+        im.src = url;
+        if(wrap) wrap.style.display="block";
+        else im.style.display="";
+      }
+    }catch(_){}
+  }
+
+  async function runPipeline(file, kind){
+    // Put into the app's expected holder
+    window.__sspReceipt = window.__sspReceipt || {};
+    window.__sspReceipt.file = file;
+    window.__sspReceipt.getLastFile = ()=>file;
+    if(kind === "pdf") window.__sspPdfLastImageFile = file;
+
+    await showPreview(file);
+
+    if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+      await window.__sspReceipt.handle(file, kind);
+      return true;
+    }
+    if(typeof window.handleReceiptOCR === "function"){
+      await window.handleReceiptOCR(file);
+      return true;
+    }
+    return false;
+  }
+
+  function refreshUI(){
+    try{
+      if(typeof window.__sspForceRefresh === "function") { window.__sspForceRefresh(); return; }
+    }catch(_){}
+    try{ if(typeof window.renderHome==="function") window.renderHome(); }catch(_){}
+    try{ if(typeof window.renderArchive==="function") window.renderArchive(); }catch(_){}
+    try{ if(typeof window.renderReport==="function") window.renderReport(); }catch(_){}
+    try{ if(typeof window.renderAll==="function") window.renderAll(); }catch(_){}
+    try{ if(typeof window.refreshUI==="function") window.refreshUI(); }catch(_){}
+    try{ if(typeof window.updateHome==="function") window.updateHome(); }catch(_){}
+  }
+
+  // ---------- queue with duplicate guard
+  window.__sspMultiProcessedKeys = window.__sspMultiProcessedKeys || {};
+  function fileKey(f){
+    try{ return [f.name||"", f.size||0, f.lastModified||0, f.type||""].join("::"); }catch(_){ return String(Math.random()); }
+  }
+
+  let busy = false;
+  async function processBatch(files){
+    if(busy) { toastSafe("Elaborazione già in corso…"); return; }
+    busy = true;
+    try{
+      const arr = Array.from(files||[]);
+      if(!arr.length) return;
+
+      // detect batch type mix and normalize per file
+      const total = arr.length;
+      toastSafe(`Elaboro ${total} file…`);
+
+      for(let i=0;i<total;i++){
+        const f = arr[i];
+        const key = fileKey(f);
+        if(window.__sspMultiProcessedKeys[key]) continue;
+        window.__sspMultiProcessedKeys[key] = true;
+
+        try{
+          if(isPdfFile(f)){
+            toastSafe(`Elaboro ${i+1}/${total} (PDF)…`, 1200);
+            const img = await pdfFirstPageToImage(f);
+            await runPipeline(img, "pdf");
+          }else if(isImageFile(f)){
+            toastSafe(`Elaboro ${i+1}/${total} (foto)…`, 1200);
+            await runPipeline(f, "photo");
+          }else{
+            // skip unknown
+          }
+          // Give the app a moment to autosave + render, then refresh UI
+          await new Promise(r=>setTimeout(r, 250));
+          refreshUI();
+          await new Promise(r=>setTimeout(r, 200));
+        }catch(err){
+          log("batch item error", err);
+          // allow re-try for that file if needed
+          try{ delete window.__sspMultiProcessedKeys[key]; }catch(_){}
+        }
+      }
+
+      toastSafe("Batch completato ✅");
+      refreshUI();
+    } finally {
+      busy = false;
+    }
+  }
+
+  // ---------- intercept only MULTI selections, so single-file flow stays untouched
+  document.addEventListener("change", (e)=>{
+    const t = e.target;
+    if(!t || t.tagName !== "INPUT" || t.type !== "file") return;
+    const files = t.files;
+    if(!files || files.length <= 1) return;
+
+    // If user selected multiple, we handle it and block other change handlers for this event
+    try{ e.stopImmediatePropagation(); }catch(_){}
+    try{ e.stopPropagation(); }catch(_){}
+
+    // IMPORTANT: do NOT reopen picker; just process.
+    processBatch(files);
+
+    // reset input so next batch can select same files again
+    setTimeout(()=>{ try{ t.value=""; }catch(_){ } }, 120);
+  }, true);
+
+  log("Ready ✅");
+})();
+/* ================================
+   MULTI BATCH IMPORT v2 (DEFINITIVO, CHIRURGICO, APPEND-ONLY)
+   Fix: user can select multiple files, but only the FIRST gets saved.
+   Cause: Auto-salva only runs when the Add modal is OPEN; after first save the modal closes,
+          subsequent files were processed with modal closed => no autosave => no new entries.
+   Solution:
+   - When a multi-selection happens (files.length>1), we:
+       * process files sequentially
+       * for EACH file: openAdd() to open modal, run OCR pipeline, then wait for autosave/save to close modal
+       * then continue to next file (no picker re-open)
+   Safety:
+   - Does NOT modify existing features
+   - Works even if autosave is OFF (fallback clicks Save when fields are valid)
+   - Continues on errors, never blocks app
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_MULTI_BATCH_V2) return;
+  window.__SSP_MULTI_BATCH_V2 = true;
+
+  const log = (...a)=>{ try{ console.log("[MULTI BATCH v2]", ...a); }catch(_){} };
+  const toastSafe = (m, ms)=>{ try{ if(typeof toast==="function") toast(m, ms||1400); }catch(_){ } };
+
+  const $ = (s)=>document.querySelector(s);
+
+  // ---- ensure multi is enabled on inputs
+  function forceMultiInputs(){
+    try{
+      document.querySelectorAll("input[type='file']").forEach(inp=>{
+        const acc = String(inp.accept||"").toLowerCase();
+        if(acc.includes("image") || acc.includes("pdf")) inp.multiple = true;
+      });
+    }catch(_){}
+  }
+  document.addEventListener("DOMContentLoaded", forceMultiInputs);
+  setTimeout(forceMultiInputs, 800);
+  setTimeout(forceMultiInputs, 2000);
+
+  // ---- pdf helpers
+  function loadScriptOnce(src){
+    window.__sspScripts = window.__sspScripts || {};
+    if(window.__sspScripts[src]) return window.__sspScripts[src];
+    window.__sspScripts[src] = new Promise((res, rej)=>{
+      const s=document.createElement("script");
+      s.src=src; s.async=true;
+      s.onload=()=>res(true);
+      s.onerror=()=>rej(new Error("Load failed: "+src));
+      document.head.appendChild(s);
+    });
+    return window.__sspScripts[src];
+  }
+  async function ensurePdfJsReady(){
+    if(window.pdfjsLib && window.__sspPdfReady) return true;
+    if(!window.pdfjsLib){
+      await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+    }
+    if(!window.pdfjsLib) throw new Error("PDF.js missing");
+    try{
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    }catch(_){}
+    window.__sspPdfReady = true;
+    return true;
+  }
+  function isPdfFile(f){
+    const name = String(f?.name||"").toLowerCase();
+    return f?.type === "application/pdf" || name.endsWith(".pdf");
+  }
+  function isImageFile(f){
+    return String(f?.type||"").startsWith("image/");
+  }
+  async function pdfFirstPageToImage(pdfFile){
+    if(typeof window.__sspPdfFirstPageToPngFile === "function"){
+      return await window.__sspPdfFirstPageToPngFile(pdfFile);
+    }
+    if(typeof window.__sspPdfFirstPageToImageFile === "function"){
+      return await window.__sspPdfFirstPageToImageFile(pdfFile);
+    }
+    await ensurePdfJsReady();
+    const buf = await pdfFile.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.6 });
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+    canvas.width  = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const blob = await new Promise((res)=>canvas.toBlob(res, "image/jpeg", 0.92));
+    if(!blob) throw new Error("PDF render failed");
+    const name = String(pdfFile.name||"documento.pdf").replace(/\.pdf$/i,"") + ".jpg";
+    return new File([blob], name, { type:"image/jpeg" });
+  }
+
+  // ---- wait helpers
+  function modalIsOpen(){
+    const m = $("#modalAdd");
+    return !!(m && m.classList && m.classList.contains("show"));
+  }
+  async function waitUntil(cond, timeoutMs){
+    const t0 = Date.now();
+    while(Date.now() - t0 < timeoutMs){
+      if(cond()) return true;
+      await new Promise(r=>setTimeout(r, 120));
+    }
+    return false;
+  }
+  function amountOk(){
+    const el = $("#inAmount");
+    if(!el) return false;
+    const v = String(el.value||"").trim().replace(".", "").replace(",", ".");
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0;
+  }
+  function dateOk(){
+    const el = $("#inDate");
+    return !!(el && String(el.value||"").trim());
+  }
+
+  async function runOcrWithFile(file, kind){
+    // attach for save pipeline
+    window.__sspReceipt = window.__sspReceipt || {};
+    window.__sspReceipt.file = file;
+    window.__sspReceipt.getLastFile = ()=>file;
+    if(kind === "pdf") window.__sspPdfLastImageFile = file;
+
+    if(window.__sspReceipt && typeof window.__sspReceipt.handle === "function"){
+      await window.__sspReceipt.handle(file, kind === "pdf" ? "batch-pdf" : "batch-photo");
+      return true;
+    }
+    if(typeof window.handleReceiptOCR === "function"){
+      await window.handleReceiptOCR(file);
+      return true;
+    }
+    return false;
+  }
+
+  async function ensureSavedOrFallback(){
+    // Wait for autosave to close modal
+    const closed = await waitUntil(()=>!modalIsOpen(), 8000);
+    if(closed) return true;
+
+    // Autosave might be OFF -> click save when valid
+    if(amountOk() && dateOk()){
+      const b = $("#btnSave");
+      if(b) b.click();
+      const closed2 = await waitUntil(()=>!modalIsOpen(), 8000);
+      return closed2;
+    }
+    // If still not valid, user probably needs to edit; leave modal open
+    return false;
+  }
+
+  // ---- batch core
+  let busy = false;
+  window.__sspMultiProcessedKeys = window.__sspMultiProcessedKeys || {};
+  function fileKey(f){
+    try{ return [f.name||"", f.size||0, f.lastModified||0, f.type||""].join("::"); }catch(_){ return String(Math.random()); }
+  }
+
+  async function processBatch(files){
+    if(busy){ toastSafe("Elaborazione già in corso…"); return; }
+    busy = true;
+    try{
+      const arr = Array.from(files||[]);
+      const total = arr.length;
+      toastSafe(`Batch: ${total} file…`);
+
+      for(let i=0;i<total;i++){
+        const raw = arr[i];
+        const key = fileKey(raw);
+        if(window.__sspMultiProcessedKeys[key]) continue;
+
+        window.__sspMultiProcessedKeys[key] = true;
+        try{
+          // Open modal for THIS item (autosave requires it)
+          if(typeof window.openAdd === "function") window.openAdd();
+          await waitUntil(modalIsOpen, 2000);
+
+          toastSafe(`File ${i+1}/${total}…`);
+
+          if(isPdfFile(raw)){
+            const img = await pdfFirstPageToImage(raw);
+            await runOcrWithFile(img, "pdf");
+          }else if(isImageFile(raw)){
+            await runOcrWithFile(raw, "photo");
+          }else{
+            continue;
+          }
+
+          // Now wait for save (autosave or fallback)
+          const saved = await ensureSavedOrFallback();
+          if(!saved){
+            // if not saved, stop the batch so user can fix fields
+            toastSafe("Completa i campi e salva, poi riprendi il batch.");
+            break;
+          }
+
+          // small pause to let Home refresh
+          await new Promise(r=>setTimeout(r, 250));
+          try{ if(typeof window.renderHome==="function") window.renderHome(); }catch(_){}
+        }catch(err){
+          log("item error", err);
+          try{ delete window.__sspMultiProcessedKeys[key]; }catch(_){}
+        }
+      }
+
+      toastSafe("Batch completato ✅");
+      try{ if(typeof window.renderHome==="function") window.renderHome(); }catch(_){}
+    } finally {
+      busy = false;
+    }
+  }
+
+  // ---- intercept multi-selection change events
+  document.addEventListener("change", (e)=>{
+    const t = e.target;
+    if(!t || t.tagName !== "INPUT" || t.type !== "file") return;
+    const files = t.files;
+    if(!files || files.length <= 1) return;
+
+    // Handle multi; prevent other handlers from conflicting for THIS event.
+    try{ e.stopImmediatePropagation(); }catch(_){}
+    try{ e.stopPropagation(); }catch(_){}
+
+    processBatch(files);
+
+    // reset input so same files can be selected again
+    setTimeout(()=>{ try{ t.value=""; }catch(_){ } }, 150);
+  }, true);
+
+  log("Ready ✅");
+})();
+/* ================================
+   MULTI BATCH PROGRESS UI v1 (APPEND-ONLY)
+   Adds a small progress overlay during multi-batch import (works with MULTI BATCH v2).
+   - Shows current file index/total and kind
+   - Provides a cancel button (stops after current item)
+   - Does NOT touch other features.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_BATCH_PROGRESS_UI_V1) return;
+  window.__SSP_BATCH_PROGRESS_UI_V1 = true;
+
+  const log = (...a)=>{ try{ console.log("[BATCH UI]", ...a); }catch(_){} };
+
+  // state
+  window.__sspBatchProgress = window.__sspBatchProgress || { active:false, i:0, total:0, label:"", cancel:false };
+
+  function ensureOverlay(){
+    let ov = document.getElementById("sspBatchOverlay");
+    if(ov) return ov;
+
+    ov = document.createElement("div");
+    ov.id = "sspBatchOverlay";
+    ov.style.cssText = [
+      "position:fixed",
+      "left:12px",
+      "right:12px",
+      "bottom:12px",
+      "z-index:99999",
+      "background:rgba(20,20,22,.95)",
+      "color:#fff",
+      "border:1px solid rgba(255,255,255,.12)",
+      "border-radius:16px",
+      "padding:12px 14px",
+      "box-shadow:0 10px 26px rgba(0,0,0,.35)",
+      "display:none",
+      "font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif"
+    ].join(";");
+
+    ov.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="flex:1">
+          <div id="sspBatchTitle" style="font-weight:800;font-size:14px;line-height:1.2">Elaborazione…</div>
+          <div id="sspBatchSub" style="opacity:.9;font-size:12px;margin-top:4px">—</div>
+          <div style="height:8px;background:rgba(255,255,255,.12);border-radius:999px;margin-top:10px;overflow:hidden">
+            <div id="sspBatchBar" style="height:100%;width:0%;background:rgba(255,255,255,.75)"></div>
+          </div>
+        </div>
+        <button id="sspBatchCancel" type="button" style="
+          border:1px solid rgba(255,255,255,.18);
+          background:rgba(255,255,255,.08);
+          color:#fff;
+          padding:10px 12px;
+          border-radius:12px;
+          font-weight:800;
+          cursor:pointer;
+        ">Stop</button>
+      </div>
+    `;
+    document.body.appendChild(ov);
+
+    const btn = ov.querySelector("#sspBatchCancel");
+    btn.addEventListener("click", ()=>{
+      try{
+        window.__sspBatchProgress.cancel = true;
+        ov.querySelector("#sspBatchSub").textContent = "Stop richiesto… finisco il file corrente.";
+      }catch(_){}
+    });
+
+    return ov;
+  }
+
+  function show(i, total, label){
+    const ov = ensureOverlay();
+    const title = ov.querySelector("#sspBatchTitle");
+    const sub = ov.querySelector("#sspBatchSub");
+    const bar = ov.querySelector("#sspBatchBar");
+    const pct = total ? Math.round((i/total)*100) : 0;
+
+    title.textContent = `Batch: ${i}/${total}`;
+    sub.textContent = label || "—";
+    bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+    ov.style.display = "block";
+  }
+
+  function hide(){
+    const ov = document.getElementById("sspBatchOverlay");
+    if(ov) ov.style.display = "none";
+  }
+
+  // Expose helpers for batch runner
+  window.__sspBatchUI = window.__sspBatchUI || {};
+  window.__sspBatchUI.show = show;
+  window.__sspBatchUI.hide = hide;
+  window.__sspBatchUI.resetCancel = ()=>{ window.__sspBatchProgress.cancel = false; };
+
+  log("Ready ✅");
+})();
+/* ================================
+   SIMPLE MODE: KEEP MULTI IMPORT v1 (APPEND-ONLY)
+   Use with patch_simple_mode_v1.js
+   - Ensures in Modalità semplice, multi photo/pdf import buttons stay visible.
+   - Does not modify any logic.
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_SIMPLE_MODE_ALLOW_MULTI_V1) return;
+  window.__SSP_SIMPLE_MODE_ALLOW_MULTI_V1 = true;
+
+  function inject(){
+    if(document.getElementById("sspSimpleAllowMultiCss")) return;
+    const css = document.createElement("style");
+    css.id = "sspSimpleAllowMultiCss";
+    css.textContent = `
+      /* In modalità semplice, NON nascondere i bottoni multi */
+      body.ssp-simple #btnReceiptPdfMulti,
+      body.ssp-simple #btnImportPdfMulti,
+      body.ssp-simple #btnImportZipMulti
+      { display:inline-flex !important; }
+
+      /* Se hai un bottone multi-foto dedicato, lascialo visibile */
+      body.ssp-simple #btnReceiptGalleryMulti,
+      body.ssp-simple #btnPhotoMulti
+      { display:inline-flex !important; }
+    `;
+    document.head.appendChild(css);
+  }
+
+  document.addEventListener("DOMContentLoaded", inject);
+  setTimeout(inject, 600);
+})();
+/* ================================
+   MODALITÀ SEMPLICE v2 (CHIRURGICO, VISIBILE, AUTO-MARK)
+   Fix: toggle non evidente / elementi non marcati.
+   - Toggle card in Impostazioni (sempre visibile)
+   - Mini toggle flottante (sopra la barra in basso)
+   - Auto-nasconde voci barra: Archivio + Report + Impostazioni
+   - Nasconde blocchi avanzati nelle impostazioni (OCR/endpoint/backup ecc.) in best-effort
+   - NON cambia logica: solo UI hide/show
+   Persist: localStorage __sspSimpleMode = "1"/"0"
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_SIMPLE_MODE_V2) return;
+  window.__SSP_SIMPLE_MODE_V2 = true;
+
+  const LS_KEY="__sspSimpleMode";
+  const getOn=()=>{ try{return localStorage.getItem(LS_KEY)==="1";}catch(_){return false;} };
+  const setOn=(v)=>{
+    try{ localStorage.setItem(LS_KEY, v?"1":"0"); }catch(_){}
+    apply();
+    try{ if(typeof toast==="function") toast(v?"Modalità semplice: ON":"Modalità semplice: OFF"); }catch(_){}
+  };
+
+  function apply(){
+    try{
+      document.body.classList.toggle("ssp-simple", getOn());
+      // Nasconde elementi avanzati anche se non marcati
+      try{
+        const on = getOn();
+        const ep = document.getElementById("ocrEndpointInput");
+        if(ep){
+          const row = ep.closest(".formRow") || ep.parentElement;
+          if(row) row.style.display = on ? "none" : "";
+        }
+      }catch(_){}
+
+      const chk=document.getElementById("sspSimpleChkV2");
+      if(chk) chk.checked=getOn();
+      const fab=document.getElementById("sspSimpleFabV2");
+      if(fab) fab.textContent=getOn()?"Semplice ON":"Semplice OFF";
+    }catch(_){}
+  }
+
+  function injectCss(){
+    if(document.getElementById("sspSimpleCssV2")) return;
+    const s=document.createElement("style");
+    s.id="sspSimpleCssV2";
+    s.textContent=`
+      body.ssp-simple [data-adv="1"]{ display:none !important; }
+      body.ssp-simple .ssp-adv-block{ display:none !important; }
+
+      /* NAV/PAGINE: modalità semplice = solo Home + Camera */
+      body.ssp-simple .bottomNav .navBtn[data-nav="archive"],
+      body.ssp-simple .bottomNav .navBtn[data-nav="report"],
+      body.ssp-simple .bottomNav .navBtn[data-nav="settings"]{ display:none !important; }
+
+      body.ssp-simple .page[data-page="archive"],
+      body.ssp-simple .page[data-page="report"]{ display:none !important; }
+
+      body.ssp-simple #fabAdd{ display:none !important; } /* resta solo 📷 */
+
+      /* Impostazioni: nasconde endpoint (avanzato) */
+      body.ssp-simple #ocrEndpointInput{ display:none !important; }
+      body.ssp-simple #ocrEndpointInput + *{ display:none !important; }
+
+      #sspSimpleFabV2{
+        position:fixed; right:12px; bottom:86px; z-index:99999;
+        padding:10px 12px; border-radius:14px;
+        border:1px solid rgba(255,255,255,.18);
+        background:rgba(30,30,34,.92);
+        color:#fff; font-weight:900;
+      }
+    `;
+    document.head.appendChild(s);
+  }
+
+  function markBottomNav(){
+    try{
+      const nav = document.querySelector("nav") || document.querySelector(".bottom-nav") || document.querySelector(".tabbar") || document.body;
+      const candidates = nav.querySelectorAll("a,button,div");
+      candidates.forEach(el=>{
+        const t=(el.textContent||"").trim().toLowerCase();
+        if(!t) return;
+        if(t==="archivio" || t==="report" || t==="impostazioni"){
+          el.dataset.adv="1";
+        }
+      });
+    }catch(_){}
+  }
+
+  function markAdvancedSettings(){
+    try{
+      const settingsPage =
+        document.querySelector("#pageSettings") ||
+        document.querySelector("#tabSettings") ||
+        document.querySelector("#settings") ||
+        document.querySelector("[data-page='settings']") ||
+        document.querySelector("main") ||
+        document.body;
+
+      const keywords = ["api key","endpoint","ocr","test chiave","modalità ocr","backup","reset dati app","esporta","importa"];
+      settingsPage.querySelectorAll("section,div,article").forEach(block=>{
+        const txt=(block.textContent||"").toLowerCase();
+        if(!txt || txt.length<10) return;
+        if(keywords.some(k=>txt.includes(k))){
+          if(txt.includes("lingua") || txt.includes("salva impostazioni")) return;
+          block.classList.add("ssp-adv-block");
+        }
+      });
+    }catch(_){}
+  }
+
+  function ensureToggleCard(){
+    try{
+      if(document.getElementById("sspSimpleCardV2")) return;
+
+      const settings =
+        document.querySelector("#pageSettings") ||
+        document.querySelector("#tabSettings") ||
+        document.querySelector("#settings") ||
+        document.querySelector("[data-page='settings']");
+
+      if(!settings) return;
+
+      const card=document.createElement("div");
+      card.id="sspSimpleCardV2";
+      card.style.cssText="margin:12px 0;padding:12px;border:1px solid rgba(255,255,255,.10);border-radius:16px;background:rgba(255,255,255,.04);";
+      card.innerHTML=`
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <div>
+            <div style="font-weight:900">Modalità semplice</div>
+            <div style="opacity:.8;font-size:12px;margin-top:4px">Mostra solo funzioni essenziali. Nasconde funzioni avanzate.</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:10px;font-weight:900">
+            <input id="sspSimpleChkV2" type="checkbox" style="transform:scale(1.2)">
+            <span>ON</span>
+          </label>
+        </div>
+      `;
+      settings.prepend(card);
+
+      const chk=card.querySelector("#sspSimpleChkV2");
+      chk.checked=getOn();
+      chk.addEventListener("change", ()=>setOn(chk.checked));
+    }catch(_){}
+  }
+
+  function ensureFab(){
+    try{
+      if(document.getElementById("sspSimpleFabV2")) return;
+      const b=document.createElement("button");
+      b.id="sspSimpleFabV2";
+      b.type="button";
+      b.textContent=getOn()?"Semplice ON":"Semplice OFF";
+      b.addEventListener("click", ()=>setOn(!getOn()));
+      document.body.appendChild(b);
+    }catch(_){}
+  }
+
+  function boot(){
+    injectCss();
+    ensureFab();
+    ensureToggleCard();
+    markBottomNav();
+    markAdvancedSettings();
+    apply();
+  }
+
+  document.addEventListener("DOMContentLoaded", boot);
+  setTimeout(boot, 700);
+  setTimeout(boot, 2000);
+
+  window.__sspSetSimpleMode=setOn;
+})();
+/* ================================
+   SIMPLE MODE BUTTON FIX v1 (CHIRURGICO, APPEND-ONLY)
+   Fix: pulsante flottante "Semplice ON/OFF" non prende input (tap) su Chrome.
+   Solution:
+   - Force pointer-events:auto + touch-action
+   - Max z-index + new layer
+   - Rebind handlers (click + touchend) in capture phase
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_SIMPLE_BTN_FIX_V1) return;
+  window.__SSP_SIMPLE_BTN_FIX_V1 = true;
+
+  const LS_KEY="__sspSimpleMode";
+  const getOn=()=>{ try{return localStorage.getItem(LS_KEY)==="1";}catch(_){return false;} };
+  const setOn=(v)=>{
+    try{ localStorage.setItem(LS_KEY, v?"1":"0"); }catch(_){}
+    try{ document.body.classList.toggle("ssp-simple", v); }catch(_){}
+    try{
+      const fab=document.getElementById("sspSimpleFabV2");
+      if(fab) fab.textContent=v?"Semplice ON":"Semplice OFF";
+      const chk=document.getElementById("sspSimpleChkV2");
+      if(chk) chk.checked=v;
+    }catch(_){}
+    try{ if(typeof toast==="function") toast(v?"Modalità semplice: ON":"Modalità semplice: OFF"); }catch(_){}
+  };
+
+  function hardenFab(){
+    const fab = document.getElementById("sspSimpleFabV2");
+    if(!fab || !fab.parentNode) return;
+
+    // Always tappable
+    fab.style.pointerEvents = "auto";
+    fab.style.touchAction = "manipulation";
+    fab.style.userSelect = "none";
+    fab.style.webkitUserSelect = "none";
+    fab.style.zIndex = "2147483647";
+    fab.style.transform = "translateZ(0)";
+    fab.style.webkitTransform = "translateZ(0)";
+    fab.style.position = "fixed";
+
+    // Replace node to drop any broken listeners
+    const clone = fab.cloneNode(true);
+    fab.parentNode.replaceChild(clone, fab);
+
+    const handler = (ev)=>{
+      try{ ev.preventDefault(); }catch(_){}
+      try{ ev.stopPropagation(); }catch(_){}
+      try{ ev.stopImmediatePropagation(); }catch(_){}
+      setOn(!getOn());
+      return false;
+    };
+
+    // Capture beats overlay handlers
+    clone.addEventListener("click", handler, true);
+    clone.addEventListener("touchend", handler, {capture:true, passive:false});
+  }
+
+  document.addEventListener("DOMContentLoaded", ()=>setTimeout(hardenFab, 50));
+  setTimeout(hardenFab, 600);
+  setTimeout(hardenFab, 2000);
+})();
+/* ================================
+   HOTFIX v1: (A) SIMPLE BUTTON INPUT + (B) OCR IMPORTO "VALE EUR" PRIORITY
+   CHIRURGICO / APPEND-ONLY: non rimuove funzioni esistenti.
+   A) Bottone "Semplice ON/OFF" non prende input:
+      - aggiunge un listener globale in capture che intercetta tap dentro il rettangolo del bottone
+      - forza pointer-events e sposta leggermente il bottone sopra la navbar
+   B) OCR: su scontrini/buoni CRAI prende 30€ (spesa minima) invece di 5€ (VALE EUR 5.00)
+      - aggiunge una funzione di "post-fix" dell'importo: se trova "VALE EUR" usa quello come importo
+      - fallback: ignora "SPESA MINIMA" e simili
+   ================================ */
+(function(){
+  "use strict";
+  if (window.__SSP_HOTFIX_SIMPLEBTN_OCR_V1) return;
+  window.__SSP_HOTFIX_SIMPLEBTN_OCR_V1 = true;
+
+  /* ----------------
+     A) SIMPLE BUTTON INPUT
+     ---------------- */
+  const LS_KEY="__sspSimpleMode";
+  const getOn=()=>{ try{return localStorage.getItem(LS_KEY)==="1";}catch(_){return false;} };
+  const setOn=(v)=>{
+    try{ localStorage.setItem(LS_KEY, v?"1":"0"); }catch(_){}
+    try{ document.body.classList.toggle("ssp-simple", v); }catch(_){}
+    try{
+      const fab=document.getElementById("sspSimpleFabV2");
+      if(fab) fab.textContent=v?"Semplice ON":"Semplice OFF";
+      const chk=document.getElementById("sspSimpleChkV2");
+      if(chk) chk.checked=v;
+    }catch(_){}
+    try{ if(typeof toast==="function") toast(v?"Modalità semplice: ON":"Modalità semplice: OFF"); }catch(_){}
+  };
+
+  function hardenFab(){
+    const fab = document.getElementById("sspSimpleFabV2");
+    if(!fab) return;
+
+    // keep above nav and tappable
+    fab.style.pointerEvents = "auto";
+    fab.style.touchAction = "manipulation";
+    fab.style.userSelect = "none";
+    fab.style.webkitUserSelect = "none";
+    fab.style.zIndex = "2147483647";
+    fab.style.position = "fixed";
+    // lift it more to avoid bottom bars overlays
+    try{
+      const nav = document.querySelector("nav") || document.querySelector(".bottom-nav") || document.querySelector(".tabbar");
+      const navH = nav ? nav.getBoundingClientRect().height : 70;
+      fab.style.bottom = (navH + 18) + "px";
+      fab.style.right = "12px";
+    }catch(_){}
+
+    // mark for global hit-test
+    fab.dataset.sspHit="1";
+  }
+
+  // Global capture hit-test (works even if an overlay steals the tap)
+  function globalTapCapture(ev){
+    try{
+      const fab = document.getElementById("sspSimpleFabV2");
+      if(!fab) return;
+      const r = fab.getBoundingClientRect();
+      const x = ("changedTouches" in ev && ev.changedTouches && ev.changedTouches[0]) ? ev.changedTouches[0].clientX : ev.clientX;
+      const y = ("changedTouches" in ev && ev.changedTouches && ev.changedTouches[0]) ? ev.changedTouches[0].clientY : ev.clientY;
+      if(x==null || y==null) return;
+
+      const inside = x>=r.left && x<=r.right && y>=r.top && y<=r.bottom;
+      if(!inside) return;
+
+      // If user tapped in button area, toggle no matter what
+      ev.preventDefault?.();
+      ev.stopPropagation?.();
+      ev.stopImmediatePropagation?.();
+      setOn(!getOn());
+    }catch(_){}
+  }
+
+  document.addEventListener("pointerup", globalTapCapture, true);
+  document.addEventListener("touchend", globalTapCapture, {capture:true, passive:false});
+  document.addEventListener("click", globalTapCapture, true);
+
+  document.addEventListener("DOMContentLoaded", ()=>setTimeout(hardenFab, 50));
+  setTimeout(hardenFab, 800);
+  setTimeout(hardenFab, 2000);
+
+  /* ----------------
+     B) OCR IMPORTO FIX (VALE EUR priority)
+     ---------------- */
+  function parseEuroNumber(s){
+    if(!s) return null;
+    let t = String(s).trim();
+    // normalize: remove spaces and currency
+    t = t.replace(/\s/g,"").replace(/[€]/g,"");
+    // accept 5,00 or 5.00 or 5
+    // If both . and , exist, assume . thousands and , decimals -> remove dots
+    if(t.includes(",") && t.includes(".")) t = t.replace(/\./g,"");
+    // convert comma to dot
+    t = t.replace(",", ".");
+    const n = Number(t);
+    if(!Number.isFinite(n)) return null;
+    return n;
+  }
+
+  function findValeEur(text){
+    const T = String(text||"");
+    // typical lines: "VALE EUR 5.00" or "VALE EUR 5,00"
+    const m = T.match(/VALE\s*EUR\s*([0-9]{1,6}(?:[.,][0-9]{1,2})?)/i);
+    if(m){
+      const n = parseEuroNumber(m[1]);
+      if(n!=null && n>0) return n;
+    }
+    return null;
+  }
+
+  function looksLikeSpesaMinimaContext(text, amountStrIndex){
+    // avoid picking amounts near "SPESA MINIMA"
+    const T = String(text||"").toUpperCase();
+    const windowStart = Math.max(0, amountStrIndex-40);
+    const windowEnd = Math.min(T.length, amountStrIndex+40);
+    const around = T.slice(windowStart, windowEnd);
+    return around.includes("SPESA MINIMA") || around.includes("MINIMA DI") || around.includes("MINIMO");
+  }
+
+  function bestAmountFromText(text){
+    const T = String(text||"");
+    const vale = findValeEur(T);
+    if(vale!=null) return vale;
+
+    // Otherwise pick first "TOTAL" like patterns, and ignore spesa minima
+    // Common Italian: "TOTALE", "IMPORTO", "EURO", "TOT"
+    const candidates = [];
+    const re = /([0-9]{1,6}(?:[.,][0-9]{1,2})?)/g;
+    let m;
+    while((m = re.exec(T)) !== null){
+      const idx = m.index;
+      if(looksLikeSpesaMinimaContext(T, idx)) continue;
+      const n = parseEuroNumber(m[1]);
+      if(n==null || n<=0) continue;
+      // heuristic: prefer reasonable receipt values <= 2000
+      if(n>20000) continue;
+      candidates.push(n);
+    }
+    if(!candidates.length) return null;
+
+    // Choose the smallest >0 if there is a voucher-like receipt? No.
+    // Choose the most frequent or last? We'll choose the last numeric that isn't spesa minima
+    return candidates[candidates.length-1];
+  }
+
+  // Hook point: if app exposes last OCR text + amount setter, fix it
+  // We do this as a "post-processing" wrapper of existing OCR result handler, without touching internals.
+  function installOcrPostFix(){
+    if(window.__sspOcrPostFixInstalled) return;
+    window.__sspOcrPostFixInstalled = true;
+
+    // Wrap a known function if present
+    const fnNames = [
+      "applyOcrToForm",
+      "onOcrResult",
+      "handleOcrResult",
+      "fillFromOcrText"
+    ];
+
+    for(const name of fnNames){
+      const orig = window[name];
+      if(typeof orig === "function" && !orig.__sspWrapped){
+        window[name] = function(...args){
+          const res = orig.apply(this, args);
+          try{
+            // Try locate OCR text from args
+            const textArg = args.find(a => typeof a === "string" && a.length>20) || "";
+            const fixed = bestAmountFromText(textArg);
+            if(fixed!=null){
+              // Try set amount input
+              const inp = document.querySelector("#amount, #importo, input[name='amount'], input[name='importo'], input[data-field='amount']");
+              if(inp){
+                // format with comma
+                const v = fixed.toFixed(2).replace(".", ",");
+                inp.value = v;
+                inp.dispatchEvent(new Event("input", {bubbles:true}));
+                inp.dispatchEvent(new Event("change", {bubbles:true}));
+              }
+            }
+          }catch(_){}
+          return res;
+        };
+        window[name].__sspWrapped = true;
       }
     }
 
-    function injectDeleteButtons() {
-      $$('.item[data-open]').forEach(item => {
-        if (item.querySelector('.delete-item-btn')) return;
-        const id = item.getAttribute('data-open');
-        const amtDiv = item.querySelector('.amt');
-        if (!id || !amtDiv) return;
-        const delBtn = document.createElement('span');
-        delBtn.className = 'delete-item-btn';
-        delBtn.dataset.id = id;
-        delBtn.innerHTML = '🗑️';
-        delBtn.style.cssText = 'margin-left:8px;cursor:pointer;font-size:1.2rem;opacity:0.7;transition:opacity 0.1s;display:inline-block;';
-        delBtn.addEventListener('mouseenter', () => delBtn.style.opacity = '1');
-        delBtn.addEventListener('mouseleave', () => delBtn.style.opacity = '0.7');
-        amtDiv.appendChild(delBtn);
-      });
-    }
-
-    function addWipeAllButton() {
-      const header = $('.card-header');
-      if (!header || document.getElementById('wipeAllHomeBtn')) return;
-      const wipeBtn = document.createElement('button');
-      wipeBtn.id = 'wipeAllHomeBtn';
-      wipeBtn.className = 'btn btn-sm btn-danger';
-      wipeBtn.innerHTML = '🗑️ Cancella tutto';
-      wipeBtn.style.marginLeft = 'auto';
-      wipeBtn.addEventListener('click', () => {
-        if (core && core.wipeAll) core.wipeAll();
-        else alert("Funzione non disponibile");
-      });
-      header.appendChild(wipeBtn);
-    }
-
-    const observer = new MutationObserver(injectDeleteButtons);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    document.addEventListener('click', handleDeleteClick);
-
-    setTimeout(() => {
-      addWipeAllButton();
-      injectDeleteButtons();
-    }, 500);
-  } catch (e) {
-    console.warn("Patch eliminazione rapida disabilitata a causa di errore:", e);
+    // Also, if app stores last OCR text somewhere, expose helper
+    window.__sspBestAmountFromText = bestAmountFromText;
   }
+
+  document.addEventListener("DOMContentLoaded", ()=>setTimeout(installOcrPostFix, 200));
+  setTimeout(installOcrPostFix, 1200);
+})();
+
+/* ================================
+   HOTFIX v2: (A) SIMPLE TOGGLE INSTANT + NO DOUBLE TAP  (B) AUTO-SAVE PHOTO IN SIMPLE MODE
+   - Fix: il bottone "Semplice ON/OFF" a volte risponde lento o non subito.
+     Causa: più listener (click/touch/capture) + scansioni DOM ad ogni toggle.
+     Soluzione: usa POINTERDOWN in capture + lock anti-doppio + update UI immediata.
+   - Fix: "non carica le foto automaticamente" in modalità semplice.
+     Soluzione: quando SIMPLE=ON e selezioni/scatti una foto/PDF:
+       * esegue OCR (se disponibile)
+       * se importo+data sono validi => auto-click su Salva (anche se l'autosave impostazioni è OFF)
+   APPEND-ONLY: non rimuove nulla, ma intercetta prima.
+   ================================ */
+(function(){
+  "use strict";
+  if(window.__SSP_HOTFIX_V2_SIMPLE_FAST) return;
+  window.__SSP_HOTFIX_V2_SIMPLE_FAST = true;
+
+  const LS_KEY = "__sspSimpleMode";
+  const getOn = ()=>{ try{return localStorage.getItem(LS_KEY)==="1";}catch(_){return false;} };
+  const setOnFast = (v)=>{
+    const on = !!v;
+    try{ localStorage.setItem(LS_KEY, on?"1":"0"); }catch(_){ }
+    try{ document.body.classList.toggle("ssp-simple", on); }catch(_){ }
+    try{
+      const fab=document.getElementById("sspSimpleFabV2");
+      if(fab) fab.textContent = on?"Semplice ON":"Semplice OFF";
+      const chk=document.getElementById("sspSimpleChkV2");
+      if(chk) chk.checked = on;
+    }catch(_){ }
+  };
+
+  // Expose as the canonical setter (other patches may call it)
+  window.__sspSetSimpleModeFast = setOnFast;
+
+  // ---------- Fast toggle handler (capture) ----------
+  let lastToggleAt = 0;
+  function fastToggle(ev){
+    const now = Date.now();
+    if(now - lastToggleAt < 350) return; // anti doppio tap (touchend+click)
+    lastToggleAt = now;
+    try{ ev.preventDefault(); }catch(_){ }
+    try{ ev.stopPropagation(); }catch(_){ }
+    try{ ev.stopImmediatePropagation(); }catch(_){ }
+    const next = !getOn();
+    setOnFast(next);
+    try{ if(typeof toast === 'function') toast(next?"Modalità semplice: ON":"Modalità semplice: OFF", 900); }catch(_){ }
+  }
+
+  function bindFastFab(){
+    const fab = document.getElementById("sspSimpleFabV2");
+    if(!fab) return;
+
+    // Make sure it's always tappable and above overlays
+    fab.style.pointerEvents = "auto";
+    fab.style.touchAction = "manipulation";
+    fab.style.zIndex = "2147483647";
+    fab.style.transform = "translateZ(0)";
+
+    // Bind pointerdown in capture so it fires immediately
+    // (and before other click/touch handlers)
+    fab.addEventListener("pointerdown", fastToggle, true);
+  }
+
+  // Global safety net: if tap happens inside FAB rect, toggle anyway.
+  function globalHit(ev){
+    const fab = document.getElementById("sspSimpleFabV2");
+    if(!fab) return;
+    const r = fab.getBoundingClientRect();
+    const pt = (ev.changedTouches && ev.changedTouches[0]) || ev;
+    const x = pt.clientX, y = pt.clientY;
+    if(x==null || y==null) return;
+    if(x>=r.left && x<=r.right && y>=r.top && y<=r.bottom){
+      fastToggle(ev);
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", ()=>{
+    setTimeout(()=>{ setOnFast(getOn()); bindFastFab(); }, 50);
+  });
+  setTimeout(()=>{ setOnFast(getOn()); bindFastFab(); }, 700);
+
+  // capture phase (works even if overlays steal events)
+  document.addEventListener("touchstart", globalHit, {capture:true, passive:false});
+  document.addEventListener("pointerdown", globalHit, true);
+
+  // ---------- Auto-save in SIMPLE mode when selecting/scanning a receipt ----------
+  function parseNum(v){
+    const s = String(v||"").trim().replace(/\./g, "").replace(/,/g, ".");
+    const n = Number(s);
+    return Number.isFinite(n)? n : NaN;
+  }
+  function canAutoSave(){
+    const m = document.getElementById("modalAdd");
+    if(!m || !m.classList || !m.classList.contains("show")) return false;
+    // do not auto-save while editing an existing receipt
+    try{ if(typeof window.editId !== 'undefined' && window.editId) return false; }catch(_){ }
+    const amt = parseNum(document.getElementById("inAmount")?.value);
+    const dt  = String(document.getElementById("inDate")?.value || "").trim();
+    return Number.isFinite(amt) && amt>0 && !!dt;
+  }
+
+  let autoSaveLock = 0;
+  async function tryAutoSaveSoon(){
+    if(!getOn()) return; // only in simple mode
+    const now = Date.now();
+    if(now - autoSaveLock < 2500) return;
+
+    // Wait a bit for OCR to fill fields
+    await new Promise(r=>setTimeout(r, 350));
+    if(!canAutoSave()){
+      // wait a little more (OCR may be slower)
+      await new Promise(r=>setTimeout(r, 650));
+    }
+    if(!canAutoSave()) return;
+
+    autoSaveLock = Date.now();
+    const btn = document.getElementById("btnSave");
+    if(btn) btn.click();
+  }
+
+  // Intercept selection changes on photo/pdf inputs (capture) to schedule auto-save.
+  document.addEventListener("change", (e)=>{
+    const t = e.target;
+    if(!t || t.tagName !== 'INPUT' || t.type !== 'file') return;
+    const id = t.id || "";
+    // photo/camera/pdf inputs known in this app
+    if(id === "inPhoto" || id === "inPhotoCam" || id === "inPdf" || id === "inPdfMulti" || id.includes("Pdf") || id.includes("Photo")){
+      // schedule after existing handlers run
+      setTimeout(()=>{ tryAutoSaveSoon(); }, 80);
+    }
+  }, true);
+
+  // Also listen to the app custom event (when present)
+  window.addEventListener('ssp:ocr-filled', ()=>{ tryAutoSaveSoon(); }, {passive:true});
 })();
 [file content end]
