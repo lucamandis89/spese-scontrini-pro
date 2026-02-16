@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=yes">
+  <meta name="theme-color" content="#2563eb">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>Spese & Scontrini PRO</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="./assets/logo.svg">
+  <link rel="stylesheet" href="./style.css?v=37.8">
+  <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script defer src="./app.js?v=37.8"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-content">
+      <div class="brand">
+        <div class="app-icon"></div>
+        <div>
+          <h1>Spese & Scontrini <span class="badge-pro">PRO</span></h1>
+          <div class="subtitle" id="headerSubtitle">Offline • PDF • Foto • Backup</div>
+        </div>
+      </div>
+      <div class="pill" id="proState">FREE</div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <!-- HOME -->
+    <section class="page active" data-page="home">
+      <div class="container">
+        <div class="card">
+          <div class="card-header">
+            <h2>Dashboard</h2>
+            <button class="btn btn-sm" id="btnProToggle">✨ Test PRO</button>
+          </div>
+          <div class="card-body">
+            <div class="stats-grid">
+              <div class="stat-item">
+                <span class="stat-label">Totale mese</span>
+                <span class="stat-value" id="statMonth">€ 0,00</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">Totale anno</span>
+                <span class="stat-value" id="statYear">€ 0,00</span>
+              </div>
+            </div>
+
+            <div class="budget-card">
+              <div class="budget-header">
+                <div>
+                  <h3>Budget mensile</h3>
+                  <p class="text-muted" id="budgetSub">Imposta un budget</p>
+                </div>
+                <button class="btn btn-sm btn-primary" id="btnBudget">🎯 Imposta</button>
+              </div>
+              <div class="budget-bar-container">
+                <div class="budget-bar" id="budgetBar" style="width:0%"></div>
+              </div>
+              <div class="budget-footer">
+                <span id="budgetLeft">—</span>
+                <span id="budgetPct">—</span>
+              </div>
+            </div>
+
+            <div class="free-hint" id="freeHint">
+              Versione FREE: max 30 spese e 3 PDF/mese.
+            </div>
+
+            <div class="action-row">
+              <button class="btn btn-primary" id="goArchive">📂 Archivio</button>
+              <button class="btn btn-primary" id="goReport">📄 Report</button>
+            </div>
+
+            <div class="action-row" style="margin-top:10px;">
+              <button class="btn btn-secondary" id="btnAnalyzePending" style="display:none;">🧠 Analizza ora (0)</button>
+            </div>
+
+            <h3 class="section-title">Ultime spese</h3>
+            <div class="list" id="recentList"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ARCHIVIO -->
+    <section class="page" data-page="archive">
+      <div class="container">
+        <div class="card">
+          <div class="card-header">
+            <h2>Archivio</h2>
+          </div>
+          <div class="card-body">
+            <div class="filters-bar">
+              <div class="filter-group">
+                <label>Mese</label>
+                <input type="month" id="fMonth">
+              </div>
+              <div class="filter-group">
+                <label>Categoria</label>
+                <select id="fCategory"></select>
+              </div>
+              <div class="filter-group">
+                <label>Cerca</label>
+                <input type="text" id="fSearch" placeholder="testo...">
+              </div>
+              
+              <div class="filter-group adv-filter">
+                <label>Da</label>
+                <input type="date" id="fFrom">
+              </div>
+              <div class="filter-group adv-filter">
+                <label>A</label>
+                <input type="date" id="fTo">
+              </div>
+              <div class="filter-group adv-filter">
+                <label>Min €</label>
+                <input type="number" id="fMin" inputmode="decimal" placeholder="0">
+              </div>
+              <div class="filter-group adv-filter">
+                <label>Max €</label>
+                <input type="number" id="fMax" inputmode="decimal" placeholder="∞">
+              </div>
+              <div class="filter-group adv-filter checkbox">
+                <label class="inline">
+                  <input type="checkbox" id="fDetraibili">
+                  Solo detraibili
+                </label>
+              </div>
+
+              <div class="filter-actions">
+                <div class="segmented">
+                  <button class="segmented-btn active" id="viewList">Lista</button>
+                  <button class="segmented-btn" id="viewTimeline">Timeline</button>
+                </div>
+                <button class="btn btn-sm btn-primary" id="btnClearFilters">🧼 Filtri</button>
+              </div>
+            </div>
+
+            <div class="info-badge">⭐ Detraibile (730) nelle categorie CAF/ISEE.</div>
+
+            <div class="list-summary">
+              <span class="text-muted" id="countLabel">0 spese</span>
+              <span class="text-muted" id="sumLabel">Totale filtro: € 0,00</span>
+            </div>
+
+            <div class="list" id="list"></div>
+            <div class="timeline" id="timeline" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- REPORT -->
+    <section class="page" data-page="report">
+      <div class="container">
+        <div class="card">
+          <div class="card-header">
+            <h2>Report</h2>
+          </div>
+          <div class="card-body">
+            <div class="grid-2">
+              <div>
+                <label>Mese report</label>
+                <input type="month" id="rMonth">
+              </div>
+              <div>
+                <label>Tipo</label>
+                <select id="rMode">
+                  <option value="month">Mensile</option>
+                  <option value="caf">CAF/ISEE</option>
+                </select>
+              
+              <p class="text-muted" id="autoBackupInfo" style="margin-top:10px;"></p>
+              <div class="action-row" style="margin-top:10px;">
+                <button class="btn btn-sm btn-secondary" id="btnAutoRestore">↩️ Ripristino rapido</button>
+              </div>
+
+            </div>
+
+            <div class="action-row">
+              <button class="btn btn-primary" id="btnMakePdf">📄 Genera PDF</button>
+              <button class="btn btn-primary" id="btnSendAccountant">📤 Invia 730</button>
+              <button class="btn btn-primary" id="btnBackup">⬇️ Backup</button>
+              <label class="btn btn-primary">
+                ⬆️ Ripristina
+                <input type="file" accept="application/json" id="inRestore" style="display:none">
+              </label>
+
+              <button class="btn btn-sm btn-secondary" id="btnExportCsv">⬇️ Export CSV</button>
+              <button class="btn btn-sm btn-secondary" id="btnExportExcel">⬇️ Export Excel</button>
+              <button class="btn btn-sm btn-secondary" id="btnOpenTrash">🗑️ Cestino</button>
+            </div>
+
+            
+            <div class="analysis-card" id="dashCard">
+              <div class="analysis-header">
+                <h3>Dashboard mensile</h3>
+                <span class="text-muted" id="dashSubtitle"></span>
+              </div>
+
+              <div class="dash-stats">
+                <div class="dash-stat">
+                  <div class="dash-label">Totale mese</div>
+                  <div class="dash-value" id="dashTotal">€ 0,00</div>
+                </div>
+                <div class="dash-stat">
+                  <div class="dash-label">Detraibili</div>
+                  <div class="dash-value" id="dashCaf">€ 0,00</div>
+                </div>
+                <div class="dash-stat">
+                  <div class="dash-label">Non detraibili</div>
+                  <div class="dash-value" id="dashNonCaf">€ 0,00</div>
+                </div>
+                <div class="dash-stat">
+                  <div class="dash-label">% detraibili</div>
+                  <div class="dash-value" id="dashPct">0%</div>
+                </div>
+              </div>
+
+              <div class="dash-grid">
+                <div>
+                  <div class="dash-section-title">Top categorie</div>
+                  <div class="analysis-bars" id="dashCatBars"></div>
+                </div>
+                <div>
+                  <div class="dash-section-title">Top spese (descrizione)</div>
+                  <div class="analysis-list" id="dashTopNotes"></div>
+                </div>
+              </div>
+            </div>
+
+
+            <div class="analysis-card">
+              <div class="analysis-header">
+                <h3>Analisi categorie</h3>
+                <label class="toggle-caf">
+                  <input type="checkbox" id="anaOnlyCaf"> Solo detraibili
+                </label>
+              </div>
+              <div class="analysis-bars" id="anaBars"></div>
+              <div class="analysis-list" id="anaList"></div>
+            </div>
+
+            <div class="action-row">
+              <button class="btn btn-danger" id="btnWipeAll">🗑️ Reset totale</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- IMPOSTAZIONI -->
+    <section class="page" data-page="settings">
+      <div class="container">
+        <div class="card">
+          <div class="card-header">
+            <h2>Impostazioni</h2>
+          </div>
+          <div class="card-body">
+            <div class="settings-section">
+              <h3>OCR</h3>
+              <p class="text-muted">Chiave pubblica "helloworld" inclusa.</p>
+              <div class="form-row">
+                <label>API Key</label>
+                <input type="text" id="ocrKeyInput" placeholder="API key">
+              </div>
+              <div class="form-row">
+                <label>Test chiave</label>
+                <div>
+                  <button class="btn btn-sm btn-primary" id="btnTestOcrKey">Verifica</button>
+                  <span class="text-muted" id="ocrKeyStatus"></span>
+                </div>
+              </div>
+              <div class="form-row">
+                <label>Modalità OCR</label>
+                <select id="ocrProviderSelect">
+                  <option value="offline">Offline (Tesseract)</option>
+                  <option value="online">Online (OCR.Space)</option>
+                  <option value="auto" selected>Auto</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <h3>Lingua</h3>
+              <div class="form-row">
+                <label>Interfaccia</label>
+                <select id="langSelect">
+                  <option value="it">Italiano</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <h3>Auto‑salvataggio</h3>
+              <div class="form-row checkbox">
+                <label>
+                  <input type="checkbox" id="autoSaveAfterPhotoToggle" checked>
+                  Salva automaticamente dopo ogni foto
+                </label>
+              </div>
+            </div>
+
+            <div class="action-row">
+              <button class="btn btn-primary" id="btnSaveSettings">Salva impostazioni</button>
+              <button class="btn btn-danger" id="btnResetApp">Reset app</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- BOTTOM NAVIGATION -->
+  <nav class="bottom-nav">
+    <button class="navBtn active" data-nav="home">
+      <span class="nav-icon">🏠</span>
+      <span class="nav-label">Home</span>
+    </button>
+    <button class="navBtn" data-nav="archive">
+      <span class="nav-icon">📂</span>
+      <span class="nav-label">Archivio</span>
+    </button>
+    <button class="navBtn" data-nav="report">
+      <span class="nav-icon">📄</span>
+      <span class="nav-label">Report</span>
+    </button>
+    <button class="navBtn" data-nav="settings">
+      <span class="nav-icon">⚙️</span>
+      <span class="nav-label">Impostazioni</span>
+    </button>
+  </nav>
+
+  <!-- FAB -->
+  <button class="fab" id="fabAdd" aria-label="Aggiungi spesa"></button>
+  <button class="fab fab-cam" id="fabCam" aria-label="Scatta foto">📷</button>
+
+  <!-- TOAST -->
+  <div class="toast" id="toast"></div>
+
+  <!-- MODALE AGGIUNTA -->
+  <div class="modal" id="modalAdd">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="addTitle">➕ Aggiungi spesa</h3>
+        <button class="modal-close" id="addClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="grid-2">
+          <div>
+            <label>Importo (€)</label>
+            <input type="text" id="inAmount" inputmode="decimal" placeholder="es: 12,50">
+          </div>
+          <div>
+            <label>Data</label>
+            <input type="date" id="inDate">
+          </div>
+        </div>
+
+        <label>Categoria</label>
+        <select id="inCategory"></select>
+
+        <label>Descrizione</label>
+        <input type="text" id="inNote" placeholder="es: spesa supermercato">
+
+        <label>Foto scontrino</label>
+        <div class="photo-actions">
+          <button class="btn btn-primary" id="btnReceiptCamera">📷 Scatta foto</button>
+          <button class="btn btn-primary" id="btnReceiptGallery">🖼️ Galleria</button>
+          <button class="btn btn-primary" id="btnReceiptPdf">📄 Importa PDF</button>
+          <button class="btn btn-secondary" id="btnReceiptBatch">⚡ Batch scanner</button>
+        </div>
+        <div id="batchStatus" class="batch-status" style="display:none;">
+          <div class="batch-line">
+            <span id="batchText">Batch: 0/0</span>
+            <button class="btn btn-small" id="btnBatchStop">⛔ Stop</button>
+          </div>
+          <div class="batch-bar"><div id="batchBarFill" class="batch-bar-fill" style="width:0%;"></div></div>
+        </div>
+
+        <input type="file" accept="image/*,application/pdf" id="inPhotoUnified" multiple style="display:none">
+
+        <div class="photo-preview" id="photoPreview" style="display:none">
+          <img id="photoPreviewImg" alt="anteprima">
+        </div>
+
+        <div class="ocr-panel" id="ocrPanel" style="display:none">
+          <div class="ocr-header">
+            <span><b>Risultato OCR</b></span>
+            <span class="text-muted" id="ocrStatus"></span>
+            <div>
+              <button class="btn btn-sm" id="btnOcrCopy">Copia</button>
+              <button class="btn btn-sm" id="btnOcrDownload">Scarica</button>
+            </div>
+          </div>
+          <textarea id="ocrText" rows="4" placeholder="Testo riconosciuto..."></textarea>
+        </div>
+
+        <div class="action-row">
+          <button class="btn btn-primary" id="btnSave">✅ Salva</button>
+          <button class="btn" id="btnClear">🧽 Pulisci</button>
+          <button class="btn" id="btnOpenScanner">🎛️ Migliora</button>
+          <button class="btn btn-danger" id="removePhoto">🗑️ Rimuovi</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE DETTAGLIO -->
+  <div class="modal" id="modalDetails">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="mTitle">Dettaglio spesa</h3>
+        <button class="modal-close" id="mClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted" id="mMeta"></p>
+        <img class="detail-image" id="mImg" style="display:none">
+        <div class="action-row">
+          <button class="btn btn-primary" id="mEdit">✏️ Modifica</button>
+          <button class="btn btn-danger" id="mDelete">🗑️ Elimina</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE BUDGET -->
+  <div class="modal" id="modalBudget">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>🎯 Budget mensile</h3>
+        <button class="modal-close" id="budgetClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <label>Budget (€)</label>
+        <input type="text" id="budgetInput" inputmode="decimal" placeholder="es: 700,00">
+        <div class="action-row">
+          <button class="btn btn-primary" id="budgetSave">Salva</button>
+          <button class="btn btn-danger" id="budgetClear">Rimuovi</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE SCANNER -->
+  <div class="modal" id="modalScanner">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>🪄 Scanner</h3>
+        <button class="modal-close" id="scannerClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="scanner-stage">
+          <canvas id="scanCanvas"></canvas>
+        </div>
+        <div class="scanner-controls">
+          <div>
+            <label>Rotazione</label>
+            <div class="btn-group">
+              <button class="btn btn-sm" id="rotL">↺</button>
+              <button class="btn btn-sm" id="rotR">↻</button>
+            </div>
+          </div>
+          <div>
+            <label>Contrasto</label>
+            <input type="range" id="scanContrast" min="0.6" max="1.8" step="0.05" value="1.15">
+          </div>
+          <div>
+            <label>Luminosità</label>
+            <input type="range" id="scanBright" min="-30" max="30" step="1" value="8">
+          </div>
+          <div class="crop-grid">
+            <div><label>Sx</label><input type="range" id="cropL" min="0" max="30" value="2"></div>
+            <div><label>Dx</label><input type="range" id="cropR" min="0" max="30" value="2"></div>
+            <div><label>Su</label><input type="range" id="cropT" min="0" max="30" value="2"></div>
+            <div><label>Giù</label><input type="range" id="cropB" min="0" max="30" value="2"></div>
+          </div>
+        </div>
+        <div class="action-row">
+          <button class="btn btn-primary" id="applyScan">Applica</button>
+          <button class="btn" id="resetScan">Reset</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE PRO -->
+  <div class="modal" id="modalPro">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Scontrini Facili PRO</h3>
+        <button class="modal-close" id="btnClosePro">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Stato: <b id="proStatus">FREE</b></p>
+        <p class="text-muted" id="proReason">Funzione Premium</p>
+        <ul>
+          <li>OCR illimitato</li>
+          <li>PDF senza watermark</li>
+          <li>Nessun limite</li>
+        </ul>
+        <button class="btn btn-primary" id="btnBuyPro">Sblocca PRO (4,99€)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE COMMERCIALISTA -->
+  <div class="modal" id="modalAccountant">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>📤 Invia al commercialista</h3>
+        <button class="modal-close" id="accClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted">CSV + PDF delle spese detraibili.</p>
+        <div class="grid-2">
+          <div>
+            <label>Dal</label>
+            <input type="date" id="accFrom">
+          </div>
+          <div>
+            <label>Al</label>
+            <input type="date" id="accTo">
+          </div>
+        </div>
+        <div class="action-row">
+          <button class="btn btn-sm" id="accPresetThis">Mese corrente</button>
+          <button class="btn btn-sm" id="accPresetPrev">Mese scorso</button>
+        </div>
+        <button class="btn btn-primary" id="accSend">Crea pacchetto</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE CESTINO -->
+  <div class="modal" id="trashModal" style="display:none">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>🗑️ Cestino</h3>
+        <button class="modal-close" id="btnTrashClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted"><span id="trashCount">0</span> elementi nel cestino (30 giorni).</p>
+        <div class="list" id="trashList"></div>
+        <div class="action-row">
+          <button class="btn btn-sm btn-danger" id="btnTrashEmpty">Svuota cestino</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
