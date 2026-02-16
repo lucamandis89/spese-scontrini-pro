@@ -2414,6 +2414,9 @@ unifiedFileInput.addEventListener('change', async (e) => {
 // Never throws: wrapped in try/catch.
 // ===============================
 
+
+// DISABLE legacy MULTI BATCH v2 interceptor (conflicts with built-in Batch Scanner)
+try{ window.__SSP_MULTI_BATCH_V2 = true; }catch(_){ }
 /* ============================================================
    Receipt (Camera/Gallery + OCR.Space) - clean module
    - Uses file inputs with capture attribute (no getUserMedia)
@@ -3858,6 +3861,7 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   }
 
   // ---------- intercept only MULTI selections, so single-file flow stays untouched
+  /* LEGACY MULTI INTERCEPT DISABLED
   document.addEventListener("change", (e)=>{
     const t = e.target;
     if(!t || t.tagName !== "INPUT" || t.type !== "file") return;
@@ -3873,7 +3877,7 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
     // reset input so next batch can select same files again
     setTimeout(()=>{ try{ t.value=""; }catch(_){ } }, 120);
-  }, true);
+  }, true) */;
 
   log("Ready ✅");
 })();
@@ -4807,203 +4811,4 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
   // Also listen to the app custom event (when present)
   window.addEventListener('ssp:ocr-filled', ()=>{ tryAutoSaveSoon(); }, {passive:true});
-})();
-
-
-/* ================================
-   MULTI BATCH IMPORT v3 (FIX DEFINITIVO HOME / SALVATAGGIO MULTI)
-   Problema: seleziono più foto -> sembra salvare tutte, ma in Home appare solo la prima.
-   Causa reale: le patch precedenti chiamavano funzioni interne (openAdd/onSave) NON globali => falliscono silenziosamente.
-   Soluzione v3 (chirurgica, append-only):
-   - Intercetta SOLO selezioni multiple (files.length>1) in CAPTURE e blocca gli altri handler.
-   - Per ogni file:
-       1) apre il modal "Aggiungi" cliccando il FAB (#fabAdd) (quindi usa flusso nativo app)
-       2) comprime al massimo (JPEG) per velocizzare OCR e ridurre peso APK
-       3) usa window.__sspReceipt.handle(file,"batch") se disponibile
-       4) tenta salvataggio sicuro cliccando #btnSave (se il modal è ancora aperto)
-   - Non tocca il flusso singolo.
-   ================================ */
-(function(){
-  "use strict";
-  if(window.__SSP_MULTI_BATCH_V3) return;
-  window.__SSP_MULTI_BATCH_V3 = true;
-
-  const log = (...a)=>{ try{ console.log("[MULTI BATCH v3]", ...a); }catch(_){} };
-  const toastSafe = (m, ms)=>{ try{ if(typeof toast==="function") toast(m, ms||1400); }catch(_){ } };
-  const $ = (s)=>document.querySelector(s);
-
-  const sleep = (ms)=>new Promise(r=>setTimeout(r, ms));
-  async function waitFor(cond, timeoutMs=2500, stepMs=60){
-    const t0 = Date.now();
-    while(Date.now()-t0 < timeoutMs){
-      try{ if(cond()) return true; }catch(_){}
-      await sleep(stepMs);
-    }
-    return false;
-  }
-
-  // ---- Max compress helper (fast + safe)
-  async function compressImageFileMax(file){
-    try{
-      if(!file || !file.type || !file.type.startsWith("image/")) return file;
-      // Skip tiny files
-      if(file.size < 120*1024) return file;
-
-      const url = URL.createObjectURL(file);
-      const img = await new Promise((resolve, reject)=>{
-        const im = new Image();
-        im.onload = ()=>resolve(im);
-        im.onerror = ()=>reject(new Error("img load"));
-        im.src = url;
-      });
-      URL.revokeObjectURL(url);
-
-      const maxDim = 1600;            // aggressive but still readable receipts
-      const q = 0.45;                 // strong compression
-      const w0 = img.naturalWidth || img.width;
-      const h0 = img.naturalHeight || img.height;
-      const scale = Math.min(1, maxDim / Math.max(w0, h0));
-      const w = Math.max(1, Math.round(w0 * scale));
-      const h = Math.max(1, Math.round(h0 * scale));
-
-      const c = document.createElement("canvas");
-      c.width = w; c.height = h;
-      const ctx = c.getContext("2d", { willReadFrequently:false });
-      ctx.drawImage(img, 0, 0, w, h);
-
-      const blob = await new Promise((res)=> c.toBlob(res, "image/jpeg", q));
-      if(!blob) return file;
-
-      // If compression made it bigger (rare), keep original
-      if(blob.size >= file.size) return file;
-
-      const name = (file.name||"receipt").replace(/\.(png|webp|bmp|gif|jpeg|jpg)$/i,"") + ".jpg";
-      return new File([blob], name, { type:"image/jpeg" });
-    }catch(e){
-      return file;
-    }
-  }
-
-  async function ensureAddModalOpen(){
-    const modal = $("#modalAdd");
-    if(modal && modal.classList && modal.classList.contains("show")) return true;
-
-    const fab = $("#fabAdd") || $("#fabCam");
-    if(fab) { try{ fab.click(); }catch(_){ } }
-
-    const ok = await waitFor(()=> {
-      const m = $("#modalAdd");
-      return m && m.classList && m.classList.contains("show");
-    }, 2500);
-
-    return !!ok;
-  }
-
-  async function clickSaveIfPossible(){
-    const modal = $("#modalAdd");
-    if(!modal || !modal.classList || !modal.classList.contains("show")) return false;
-
-    const btn = $("#btnSave");
-    if(!btn) return false;
-
-    try{ btn.click(); }catch(_){ return false; }
-
-    // wait for modal to close (save normally closes it)
-    await waitFor(()=> {
-      const m = $("#modalAdd");
-      return !m || !m.classList || !m.classList.contains("show");
-    }, 2200);
-
-    return true;
-  }
-
-  // Dedup across same selection (avoid double-processing)
-  const seen = new Set();
-  function keyOfFile(f){
-    return [f?.name||"", f?.size||0, f?.lastModified||0].join("|");
-  }
-
-  let busy = false;
-
-  async function processMulti(files){
-    if(busy) { toastSafe("Batch già in corso…"); return; }
-    busy = true;
-
-    try{
-      const handler = window.__sspReceipt && typeof window.__sspReceipt.handle === "function"
-        ? window.__sspReceipt.handle.bind(window.__sspReceipt)
-        : null;
-
-      if(!handler){
-        toastSafe("Batch: handler non disponibile (riapri la pagina).");
-        busy = false;
-        return;
-      }
-
-      let done = 0;
-      let total = files.length;
-
-      toastSafe(`Batch: ${total} file…`);
-
-      for(const f0 of Array.from(files)){
-        if(!f0) continue;
-        const k = keyOfFile(f0);
-        if(seen.has(k)) continue;
-        seen.add(k);
-
-        try{
-          // Ensure modal open
-          await ensureAddModalOpen();
-
-          // compress image to speed OCR
-          const f = await compressImageFileMax(f0);
-
-          // Run app receipt pipeline
-          await handler(f, "batch");
-
-          // Give OCR some time to fill fields
-          await sleep(220);
-
-          // Click save (app validations remain)
-          await clickSaveIfPossible();
-
-          done++;
-          toastSafe(`Batch: salvati ${done}/${total}`);
-          await sleep(180);
-        }catch(err){
-          log("Errore file batch:", err);
-          // continue
-          await sleep(180);
-        }
-      }
-
-      toastSafe("Batch completato ✅");
-      try{ if(typeof refresh === "function") refresh(); }catch(_){}
-      try{ if(typeof renderHome === "function") renderHome(); }catch(_){}
-      try{ if(typeof renderArchive === "function") renderArchive(); }catch(_){}
-    } finally {
-      busy = false;
-    }
-  }
-
-  // Intercept MULTI file selection - capture so we run before app listeners
-  document.addEventListener("change", (e)=>{
-    const t = e.target;
-    if(!t || t.tagName !== "INPUT" || t.type !== "file") return;
-
-    const files = t.files;
-    if(!files || files.length <= 1) return;
-
-    // block other handlers (this is the key)
-    try{ e.preventDefault(); }catch(_){}
-    try{ e.stopImmediatePropagation(); }catch(_){}
-    try{ e.stopPropagation(); }catch(_){}
-
-    processMulti(files);
-
-    // reset input so user can re-select same files again later
-    setTimeout(()=>{ try{ t.value=""; }catch(_){ } }, 120);
-  }, true);
-
-  log("Ready ✅");
 })();
