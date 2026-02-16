@@ -1817,6 +1817,20 @@ $("#addClose").addEventListener("click", closeAdd);
     
   })();
 
+  // Esponi le funzioni necessarie per le patch (aggiungi prima della chiusura dell'IIFE)
+  window.__sspCore = {
+    dbDelete: dbDelete,
+    dbPut: dbPut,
+    dbGetAll: dbGetAll,
+    refresh: refresh,
+    toast: toast,
+    wipeAll: wipeAll,
+    openAdd: openAdd,
+    showModal: showModal,
+    hideModal: hideModal,
+    // se servono altre funzioni, aggiungile qui
+  };
+
 })();
 
 
@@ -4223,10 +4237,7 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 })();
 
 /* ================================
-   PATCH: Eliminazione rapida + Reset totale in Home
-   - Aggiunge un bottone cestino su ogni spesa nelle liste
-   - Aggiunge pulsante "Cancella tutto" nella dashboard
-   APPEND-ONLY, non modifica logiche esistenti
+   PATCH: Eliminazione rapida + Reset totale in Home (usa __sspCore)
    ================================ */
 (function(){
   "use strict";
@@ -4235,31 +4246,25 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
+  const core = window.__sspCore;
 
-  // Funzione per aggiornare le liste dopo una cancellazione
   async function refreshAfterDelete() {
-    try {
-      if (typeof refresh === 'function') await refresh();
-      else if (typeof window.refresh === 'function') await window.refresh();
-    } catch (e) { console.warn("refresh fallito", e); }
+    if (core && core.refresh) await core.refresh();
   }
 
-  // Gestisce il click sul cestino (delega sugli elementi dinamici)
   function handleDeleteClick(e) {
     const btn = e.target.closest('.delete-item-btn');
     if (!btn) return;
     e.preventDefault();
-    e.stopPropagation(); // evita l'apertura del dettaglio
+    e.stopPropagation();
 
     const id = btn.dataset.id;
     if (!id) return;
-
     if (!confirm("Eliminare questa spesa?")) return;
 
-    // Usa dbDelete se disponibile (globale)
-    if (typeof dbDelete === 'function') {
-      dbDelete(id).then(() => {
-        if (typeof toast === 'function') toast("Spesa eliminata ✅");
+    if (core && core.dbDelete) {
+      core.dbDelete(id).then(() => {
+        if (core && core.toast) core.toast("Spesa eliminata ✅");
         refreshAfterDelete();
       }).catch(() => alert("Errore durante l'eliminazione"));
     } else {
@@ -4267,71 +4272,43 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
     }
   }
 
-  // Inietta i cestini nelle liste dopo ogni render
   function injectDeleteButtons() {
-    // Seleziona tutti gli elementi con data-open (spese)
-    const items = $$('.item[data-open]');
-    items.forEach(item => {
-      // Se già presente il cestino, salta
+    $$('.item[data-open]').forEach(item => {
       if (item.querySelector('.delete-item-btn')) return;
-
       const id = item.getAttribute('data-open');
-      if (!id) return;
-
       const amtDiv = item.querySelector('.amt');
-      if (!amtDiv) return;
-
-      // Crea il bottone cestino
+      if (!id || !amtDiv) return;
       const delBtn = document.createElement('span');
       delBtn.className = 'delete-item-btn';
       delBtn.dataset.id = id;
       delBtn.innerHTML = '🗑️';
-      delBtn.style.cssText = `
-        margin-left: 8px;
-        cursor: pointer;
-        font-size: 1.2rem;
-        opacity: 0.7;
-        transition: opacity 0.1s;
-        display: inline-block;
-      `;
+      delBtn.style.cssText = 'margin-left:8px;cursor:pointer;font-size:1.2rem;opacity:0.7;transition:opacity 0.1s;display:inline-block;';
       delBtn.addEventListener('mouseenter', () => delBtn.style.opacity = '1');
       delBtn.addEventListener('mouseleave', () => delBtn.style.opacity = '0.7');
       amtDiv.appendChild(delBtn);
     });
   }
 
-  // Aggiunge il pulsante "Cancella tutto" nella Home
   function addWipeAllButton() {
     const header = $('.card-header');
-    if (!header) return;
-    // Evita duplicati
-    if (document.getElementById('wipeAllHomeBtn')) return;
-
+    if (!header || document.getElementById('wipeAllHomeBtn')) return;
     const wipeBtn = document.createElement('button');
     wipeBtn.id = 'wipeAllHomeBtn';
     wipeBtn.className = 'btn btn-sm btn-danger';
     wipeBtn.innerHTML = '🗑️ Cancella tutto';
     wipeBtn.style.marginLeft = 'auto';
     wipeBtn.addEventListener('click', () => {
-      if (typeof wipeAll === 'function') {
-        wipeAll(); // già presente nel codice
-      } else {
-        alert("Funzione non disponibile");
-      }
+      if (core && core.wipeAll) core.wipeAll();
+      else alert("Funzione non disponibile");
     });
     header.appendChild(wipeBtn);
   }
 
-  // Osserva cambiamenti nel DOM per reiniettare i cestini
-  const observer = new MutationObserver(() => {
-    injectDeleteButtons();
-  });
+  const observer = new MutationObserver(injectDeleteButtons);
   observer.observe(document.body, { childList: true, subtree: true });
 
-  // Ascolta i click sul documento (delega)
   document.addEventListener('click', handleDeleteClick);
 
-  // Inizializza
   setTimeout(() => {
     addWipeAllButton();
     injectDeleteButtons();
@@ -4339,11 +4316,7 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 })();
 
 /* ================================
-   PATCH: Autoscatto intelligente
-   - Aggiunge pulsante "📷 Autoscatto" nel modale di aggiunta
-   - Apre la fotocamera, analizza il video e scatta automaticamente
-   - La foto viene passata al flusso esistente (OCR, salvataggio)
-   APPEND-ONLY, non modifica funzioni esistenti
+   PATCH: Autoscatto intelligente (usa __sspCore)
    ================================ */
 (function(){
   "use strict";
@@ -4351,13 +4324,11 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
   window.__SSP_AUTOSHOOT_PATCH = true;
 
   const $ = (s) => document.querySelector(s);
+  const core = window.__sspCore;
 
-  // Crea il pulsante "Autoscatto" accanto agli altri
   function addAutoShootButton() {
     const container = $('.photo-actions');
-    if (!container) return;
-    if (document.getElementById('btnAutoShoot')) return;
-
+    if (!container || document.getElementById('btnAutoShoot')) return;
     const btn = document.createElement('button');
     btn.id = 'btnAutoShoot';
     btn.className = 'btn btn-primary';
@@ -4366,18 +4337,10 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
     container.appendChild(btn);
   }
 
-  // Variabili di stato
-  let mediaStream = null;
-  let videoElement = null;
-  let canvas = null;
-  let animationFrame = null;
-  let shootTimer = null;
-  let lastFrameData = null;
-  let stableFrames = 0;
-  const STABLE_THRESHOLD = 5;      // numero di frame stabili consecutivi necessari
-  const CONTRAST_THRESHOLD = 30;   // soglia minima di contrasto (0-255)
+  let mediaStream = null, videoElement = null, canvas = null, animationFrame = null, shootTimer = null;
+  let lastFrameData = null, stableFrames = 0;
+  const STABLE_THRESHOLD = 5, CONTRAST_THRESHOLD = 30;
 
-  // Calcola il contrasto medio di un frame (differenza max-min)
   function getImageContrast(imageData) {
     const data = imageData.data;
     let min = 255, max = 0;
@@ -4389,114 +4352,74 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
     return max - min;
   }
 
-  // Calcola la differenza media tra due frame (stabilità)
   function frameDifference(frame1, frame2) {
-    const data1 = frame1.data;
-    const data2 = frame2.data;
+    const data1 = frame1.data, data2 = frame2.data;
     let diff = 0;
     for (let i = 0; i < data1.length; i += 4) {
-      const gray1 = 0.299 * data1[i] + 0.587 * data1[i+1] + 0.114 * data1[i+2];
-      const gray2 = 0.299 * data2[i] + 0.587 * data2[i+1] + 0.114 * data2[i+2];
-      diff += Math.abs(gray1 - gray2);
+      const g1 = 0.299 * data1[i] + 0.587 * data1[i+1] + 0.114 * data1[i+2];
+      const g2 = 0.299 * data2[i] + 0.587 * data2[i+1] + 0.114 * data2[i+2];
+      diff += Math.abs(g1 - g2);
     }
-    return diff / (data1.length / 4); // differenza media per pixel
+    return diff / (data1.length / 4);
   }
 
-  // Funzione principale di analisi frame
   function analyzeFrame() {
     if (!videoElement || videoElement.paused || videoElement.ended) return;
-
     const ctx = canvas.getContext('2d');
     canvas.width = videoElement.videoWidth;
     canvas.height = videoElement.videoHeight;
-    ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(videoElement, 0, 0);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-    // Contrasto
-    const contrast = getImageContrast(imageData);
-    if (contrast < CONTRAST_THRESHOLD) {
-      // Poco contrasto, probabilmente non c'è uno scontrino
-      stableFrames = 0;
-      lastFrameData = null;
+    if (getImageContrast(imageData) < CONTRAST_THRESHOLD) {
+      stableFrames = 0; lastFrameData = null;
       animationFrame = requestAnimationFrame(analyzeFrame);
       return;
     }
 
-    // Stabilità
     if (lastFrameData) {
       const diff = frameDifference(lastFrameData, imageData);
-      if (diff < 5) { // soglia di differenza bassa = stabile
-        stableFrames++;
-      } else {
-        stableFrames = 0;
-      }
-    } else {
-      stableFrames = 0;
-    }
+      stableFrames = diff < 5 ? stableFrames + 1 : 0;
+    } else stableFrames = 0;
 
     lastFrameData = imageData;
 
-    // Se abbiamo abbastanza frame stabili consecutivi, scatta!
-    if (stableFrames >= STABLE_THRESHOLD) {
-      shoot();
-      return;
-    }
-
+    if (stableFrames >= STABLE_THRESHOLD) { shoot(); return; }
     animationFrame = requestAnimationFrame(analyzeFrame);
   }
 
-  // Scatta la foto e chiude la preview
   function shoot() {
     if (shootTimer) clearTimeout(shootTimer);
     if (animationFrame) cancelAnimationFrame(animationFrame);
-    if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop());
-      mediaStream = null;
-    }
+    if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
 
-    // Preleva il frame corrente dal canvas
     const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-    const blob = dataURLtoBlob(dataUrl);
+    const blob = (d => { const a=d.split(','), m=a[0].match(/:(.*?);/)[1], b=atob(a[1]), u=new Uint8Array(b.length); for(let i=0;i<b.length;i++) u[i]=b.charCodeAt(i); return new Blob([u],{type:m}); })(dataUrl);
     const file = new File([blob], 'autoshot.jpg', { type: 'image/jpeg' });
 
-    // Nasconde il video
-    const previewDiv = document.getElementById('autoShootPreview');
-    if (previewDiv) previewDiv.remove();
+    const prevDiv = document.getElementById('autoShootPreview');
+    if (prevDiv) prevDiv.remove();
 
-    // Passa il file al flusso esistente (come se fosse stato selezionato)
     window.__sspReceipt = window.__sspReceipt || {};
     window.__sspReceipt.file = file;
     window.__sspReceipt.getLastFile = () => file;
 
-    // Aggiorna anteprima
     const photoPreview = $('#photoPreviewImg');
     const wrap = $('#photoPreview');
-    if (photoPreview) {
-      photoPreview.src = dataUrl;
-      if (wrap) wrap.style.display = 'block';
-    }
+    if (photoPreview) { photoPreview.src = dataUrl; if (wrap) wrap.style.display = 'block'; }
 
-    // Avvia OCR (opzionale, ma utile)
     if (window.__sspReceipt && typeof window.__sspReceipt.handle === 'function') {
       window.__sspReceipt.handle(file, 'autoshoot');
     }
 
-    if (typeof toast === 'function') toast("📸 Foto scattata!");
+    if (core && core.toast) core.toast("📸 Foto scattata!");
   }
 
-  // Avvia la fotocamera e la preview
   async function startAutoShoot() {
     try {
-      // Chiudi eventuali stream precedenti
-      if (mediaStream) {
-        mediaStream.getTracks().forEach(track => track.stop());
-      }
+      if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+      mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
 
-      mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' } // fotocamera posteriore
-      });
-
-      // Crea o riutilizza un elemento video
       if (!videoElement) {
         videoElement = document.createElement('video');
         videoElement.autoplay = true;
@@ -4504,76 +4427,42 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
       }
       videoElement.srcObject = mediaStream;
 
-      // Crea un contenitore per la preview
       let previewDiv = document.getElementById('autoShootPreview');
       if (!previewDiv) {
         previewDiv = document.createElement('div');
         previewDiv.id = 'autoShootPreview';
-        previewDiv.style.cssText = `
-          position: fixed;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0,0,0,0.9);
-          z-index: 10000;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 16px;
-        `;
+        previewDiv.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:16px;';
         document.body.appendChild(previewDiv);
       }
-
       const videoContainer = document.createElement('div');
-      videoContainer.style.cssText = `
-        width: 100%;
-        max-width: 500px;
-        background: #000;
-        border-radius: 20px;
-        overflow: hidden;
-      `;
+      videoContainer.style.cssText = 'width:100%; max-width:500px; background:#000; border-radius:20px; overflow:hidden;';
       videoContainer.appendChild(videoElement);
-      previewDiv.innerHTML = ''; // pulisce
+      previewDiv.innerHTML = '';
       previewDiv.appendChild(videoContainer);
 
-      // Bottone per annullare
       const cancelBtn = document.createElement('button');
       cancelBtn.className = 'btn btn-danger';
       cancelBtn.style.marginTop = '20px';
       cancelBtn.textContent = '✕ Annulla';
       cancelBtn.onclick = () => {
-        if (mediaStream) {
-          mediaStream.getTracks().forEach(track => track.stop());
-          mediaStream = null;
-        }
+        if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
         if (animationFrame) cancelAnimationFrame(animationFrame);
         previewDiv.remove();
       };
       previewDiv.appendChild(cancelBtn);
 
-      // Inizia la riproduzione video
       await videoElement.play();
-
-      // Prepara canvas per l'analisi
       canvas = document.createElement('canvas');
-
-      // Avvia l'analisi frame
-      stableFrames = 0;
-      lastFrameData = null;
+      stableFrames = 0; lastFrameData = null;
       if (animationFrame) cancelAnimationFrame(animationFrame);
       animationFrame = requestAnimationFrame(analyzeFrame);
-
-      // Timeout di sicurezza (dopo 15 secondi scatta comunque)
-      shootTimer = setTimeout(() => {
-        if (mediaStream) shoot();
-      }, 15000);
-
+      shootTimer = setTimeout(shoot, 15000);
     } catch (err) {
-      console.error('Autoscatto errore:', err);
-      if (typeof toast === 'function') toast("Fotocamera non accessibile");
+      console.error(err);
+      if (core && core.toast) core.toast("Fotocamera non accessibile");
     }
   }
 
-  // Utility: dataURL → Blob
   function dataURLtoBlob(dataurl) {
     const arr = dataurl.split(',');
     const mime = arr[0].match(/:(.*?);/)[1];
@@ -4584,22 +4473,13 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
     return new Blob([u8arr], { type: mime });
   }
 
-  // Inietta il pulsante quando il modale è aperto
   function checkAndAddButton() {
-    if ($('#modalAdd.show')) {
-      addAutoShootButton();
-    }
+    if ($('#modalAdd.show')) addAutoShootButton();
   }
 
-  // Osserva l'apertura del modale
-  const observer = new MutationObserver(() => {
-    checkAndAddButton();
-  });
+  const observer = new MutationObserver(checkAndAddButton);
   observer.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
 
-  // Aggiungi anche al DOMContentLoaded
-  document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(checkAndAddButton, 1000);
-  });
+  document.addEventListener('DOMContentLoaded', () => setTimeout(checkAndAddButton, 1000));
 })();
 [file content end]
