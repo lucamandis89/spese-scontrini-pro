@@ -4237,249 +4237,255 @@ document.addEventListener("DOMContentLoaded", ()=>{ renderProBadges(); });
 })();
 
 /* ================================
-   PATCH: Eliminazione rapida + Reset totale in Home (usa __sspCore)
+   PATCH: Eliminazione rapida + Reset totale in Home (con try/catch)
    ================================ */
 (function(){
-  "use strict";
-  if (window.__SSP_QUICK_DELETE_PATCH) return;
-  window.__SSP_QUICK_DELETE_PATCH = true;
+  try {
+    if (window.__SSP_QUICK_DELETE_PATCH) return;
+    window.__SSP_QUICK_DELETE_PATCH = true;
 
-  const $ = (s) => document.querySelector(s);
-  const $$ = (s) => Array.from(document.querySelectorAll(s));
-  const core = window.__sspCore;
+    const $ = (s) => document.querySelector(s);
+    const $$ = (s) => Array.from(document.querySelectorAll(s));
+    const core = window.__sspCore;
+    if (!core) return; // se core non esce, non fare nulla
 
-  async function refreshAfterDelete() {
-    if (core && core.refresh) await core.refresh();
-  }
-
-  function handleDeleteClick(e) {
-    const btn = e.target.closest('.delete-item-btn');
-    if (!btn) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    const id = btn.dataset.id;
-    if (!id) return;
-    if (!confirm("Eliminare questa spesa?")) return;
-
-    if (core && core.dbDelete) {
-      core.dbDelete(id).then(() => {
-        if (core && core.toast) core.toast("Spesa eliminata ✅");
-        refreshAfterDelete();
-      }).catch(() => alert("Errore durante l'eliminazione"));
-    } else {
-      alert("Funzione di eliminazione non disponibile");
+    async function refreshAfterDelete() {
+      if (core && core.refresh) await core.refresh();
     }
+
+    function handleDeleteClick(e) {
+      const btn = e.target.closest('.delete-item-btn');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      if (!id) return;
+      if (!confirm("Eliminare questa spesa?")) return;
+      if (core && core.dbDelete) {
+        core.dbDelete(id).then(() => {
+          if (core && core.toast) core.toast("Spesa eliminata ✅");
+          refreshAfterDelete();
+        }).catch(() => alert("Errore durante l'eliminazione"));
+      } else {
+        alert("Funzione di eliminazione non disponibile");
+      }
+    }
+
+    function injectDeleteButtons() {
+      $$('.item[data-open]').forEach(item => {
+        if (item.querySelector('.delete-item-btn')) return;
+        const id = item.getAttribute('data-open');
+        const amtDiv = item.querySelector('.amt');
+        if (!id || !amtDiv) return;
+        const delBtn = document.createElement('span');
+        delBtn.className = 'delete-item-btn';
+        delBtn.dataset.id = id;
+        delBtn.innerHTML = '🗑️';
+        delBtn.style.cssText = 'margin-left:8px;cursor:pointer;font-size:1.2rem;opacity:0.7;transition:opacity 0.1s;display:inline-block;';
+        delBtn.addEventListener('mouseenter', () => delBtn.style.opacity = '1');
+        delBtn.addEventListener('mouseleave', () => delBtn.style.opacity = '0.7');
+        amtDiv.appendChild(delBtn);
+      });
+    }
+
+    function addWipeAllButton() {
+      const header = $('.card-header');
+      if (!header || document.getElementById('wipeAllHomeBtn')) return;
+      const wipeBtn = document.createElement('button');
+      wipeBtn.id = 'wipeAllHomeBtn';
+      wipeBtn.className = 'btn btn-sm btn-danger';
+      wipeBtn.innerHTML = '🗑️ Cancella tutto';
+      wipeBtn.style.marginLeft = 'auto';
+      wipeBtn.addEventListener('click', () => {
+        if (core && core.wipeAll) core.wipeAll();
+        else alert("Funzione non disponibile");
+      });
+      header.appendChild(wipeBtn);
+    }
+
+    const observer = new MutationObserver(injectDeleteButtons);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    document.addEventListener('click', handleDeleteClick);
+
+    setTimeout(() => {
+      addWipeAllButton();
+      injectDeleteButtons();
+    }, 500);
+  } catch (e) {
+    console.warn("Patch eliminazione rapida disabilitata a causa di errore:", e);
   }
-
-  function injectDeleteButtons() {
-    $$('.item[data-open]').forEach(item => {
-      if (item.querySelector('.delete-item-btn')) return;
-      const id = item.getAttribute('data-open');
-      const amtDiv = item.querySelector('.amt');
-      if (!id || !amtDiv) return;
-      const delBtn = document.createElement('span');
-      delBtn.className = 'delete-item-btn';
-      delBtn.dataset.id = id;
-      delBtn.innerHTML = '🗑️';
-      delBtn.style.cssText = 'margin-left:8px;cursor:pointer;font-size:1.2rem;opacity:0.7;transition:opacity 0.1s;display:inline-block;';
-      delBtn.addEventListener('mouseenter', () => delBtn.style.opacity = '1');
-      delBtn.addEventListener('mouseleave', () => delBtn.style.opacity = '0.7');
-      amtDiv.appendChild(delBtn);
-    });
-  }
-
-  function addWipeAllButton() {
-    const header = $('.card-header');
-    if (!header || document.getElementById('wipeAllHomeBtn')) return;
-    const wipeBtn = document.createElement('button');
-    wipeBtn.id = 'wipeAllHomeBtn';
-    wipeBtn.className = 'btn btn-sm btn-danger';
-    wipeBtn.innerHTML = '🗑️ Cancella tutto';
-    wipeBtn.style.marginLeft = 'auto';
-    wipeBtn.addEventListener('click', () => {
-      if (core && core.wipeAll) core.wipeAll();
-      else alert("Funzione non disponibile");
-    });
-    header.appendChild(wipeBtn);
-  }
-
-  const observer = new MutationObserver(injectDeleteButtons);
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  document.addEventListener('click', handleDeleteClick);
-
-  setTimeout(() => {
-    addWipeAllButton();
-    injectDeleteButtons();
-  }, 500);
 })();
 
 /* ================================
-   PATCH: Autoscatto intelligente (usa __sspCore)
+   PATCH: Autoscatto intelligente (con try/catch)
    ================================ */
 (function(){
-  "use strict";
-  if (window.__SSP_AUTOSHOOT_PATCH) return;
-  window.__SSP_AUTOSHOOT_PATCH = true;
+  try {
+    if (window.__SSP_AUTOSHOOT_PATCH) return;
+    window.__SSP_AUTOSHOOT_PATCH = true;
 
-  const $ = (s) => document.querySelector(s);
-  const core = window.__sspCore;
+    const $ = (s) => document.querySelector(s);
+    const core = window.__sspCore;
+    if (!core) return;
 
-  function addAutoShootButton() {
-    const container = $('.photo-actions');
-    if (!container || document.getElementById('btnAutoShoot')) return;
-    const btn = document.createElement('button');
-    btn.id = 'btnAutoShoot';
-    btn.className = 'btn btn-primary';
-    btn.innerHTML = '📷 Autoscatto';
-    btn.addEventListener('click', startAutoShoot);
-    container.appendChild(btn);
-  }
-
-  let mediaStream = null, videoElement = null, canvas = null, animationFrame = null, shootTimer = null;
-  let lastFrameData = null, stableFrames = 0;
-  const STABLE_THRESHOLD = 5, CONTRAST_THRESHOLD = 30;
-
-  function getImageContrast(imageData) {
-    const data = imageData.data;
-    let min = 255, max = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      const gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
-      if (gray < min) min = gray;
-      if (gray > max) max = gray;
+    function addAutoShootButton() {
+      const container = $('.photo-actions');
+      if (!container || document.getElementById('btnAutoShoot')) return;
+      const btn = document.createElement('button');
+      btn.id = 'btnAutoShoot';
+      btn.className = 'btn btn-primary';
+      btn.innerHTML = '📷 Autoscatto';
+      btn.addEventListener('click', startAutoShoot);
+      container.appendChild(btn);
     }
-    return max - min;
-  }
 
-  function frameDifference(frame1, frame2) {
-    const data1 = frame1.data, data2 = frame2.data;
-    let diff = 0;
-    for (let i = 0; i < data1.length; i += 4) {
-      const g1 = 0.299 * data1[i] + 0.587 * data1[i+1] + 0.114 * data1[i+2];
-      const g2 = 0.299 * data2[i] + 0.587 * data2[i+1] + 0.114 * data2[i+2];
-      diff += Math.abs(g1 - g2);
+    let mediaStream = null, videoElement = null, canvas = null, animationFrame = null, shootTimer = null;
+    let lastFrameData = null, stableFrames = 0;
+    const STABLE_THRESHOLD = 5, CONTRAST_THRESHOLD = 30;
+
+    function getImageContrast(imageData) {
+      const data = imageData.data;
+      let min = 255, max = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+        if (gray < min) min = gray;
+        if (gray > max) max = gray;
+      }
+      return max - min;
     }
-    return diff / (data1.length / 4);
-  }
 
-  function analyzeFrame() {
-    if (!videoElement || videoElement.paused || videoElement.ended) return;
-    const ctx = canvas.getContext('2d');
-    canvas.width = videoElement.videoWidth;
-    canvas.height = videoElement.videoHeight;
-    ctx.drawImage(videoElement, 0, 0);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    function frameDifference(frame1, frame2) {
+      const data1 = frame1.data, data2 = frame2.data;
+      let diff = 0;
+      for (let i = 0; i < data1.length; i += 4) {
+        const g1 = 0.299 * data1[i] + 0.587 * data1[i+1] + 0.114 * data1[i+2];
+        const g2 = 0.299 * data2[i] + 0.587 * data2[i+1] + 0.114 * data2[i+2];
+        diff += Math.abs(g1 - g2);
+      }
+      return diff / (data1.length / 4);
+    }
 
-    if (getImageContrast(imageData) < CONTRAST_THRESHOLD) {
-      stableFrames = 0; lastFrameData = null;
+    function analyzeFrame() {
+      if (!videoElement || videoElement.paused || videoElement.ended) return;
+      const ctx = canvas.getContext('2d');
+      canvas.width = videoElement.videoWidth;
+      canvas.height = videoElement.videoHeight;
+      ctx.drawImage(videoElement, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      if (getImageContrast(imageData) < CONTRAST_THRESHOLD) {
+        stableFrames = 0; lastFrameData = null;
+        animationFrame = requestAnimationFrame(analyzeFrame);
+        return;
+      }
+
+      if (lastFrameData) {
+        const diff = frameDifference(lastFrameData, imageData);
+        stableFrames = diff < 5 ? stableFrames + 1 : 0;
+      } else stableFrames = 0;
+
+      lastFrameData = imageData;
+
+      if (stableFrames >= STABLE_THRESHOLD) { shoot(); return; }
       animationFrame = requestAnimationFrame(analyzeFrame);
-      return;
     }
 
-    if (lastFrameData) {
-      const diff = frameDifference(lastFrameData, imageData);
-      stableFrames = diff < 5 ? stableFrames + 1 : 0;
-    } else stableFrames = 0;
-
-    lastFrameData = imageData;
-
-    if (stableFrames >= STABLE_THRESHOLD) { shoot(); return; }
-    animationFrame = requestAnimationFrame(analyzeFrame);
-  }
-
-  function shoot() {
-    if (shootTimer) clearTimeout(shootTimer);
-    if (animationFrame) cancelAnimationFrame(animationFrame);
-    if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
-
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-    const blob = (d => { const a=d.split(','), m=a[0].match(/:(.*?);/)[1], b=atob(a[1]), u=new Uint8Array(b.length); for(let i=0;i<b.length;i++) u[i]=b.charCodeAt(i); return new Blob([u],{type:m}); })(dataUrl);
-    const file = new File([blob], 'autoshot.jpg', { type: 'image/jpeg' });
-
-    const prevDiv = document.getElementById('autoShootPreview');
-    if (prevDiv) prevDiv.remove();
-
-    window.__sspReceipt = window.__sspReceipt || {};
-    window.__sspReceipt.file = file;
-    window.__sspReceipt.getLastFile = () => file;
-
-    const photoPreview = $('#photoPreviewImg');
-    const wrap = $('#photoPreview');
-    if (photoPreview) { photoPreview.src = dataUrl; if (wrap) wrap.style.display = 'block'; }
-
-    if (window.__sspReceipt && typeof window.__sspReceipt.handle === 'function') {
-      window.__sspReceipt.handle(file, 'autoshoot');
-    }
-
-    if (core && core.toast) core.toast("📸 Foto scattata!");
-  }
-
-  async function startAutoShoot() {
-    try {
-      if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
-      mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-
-      if (!videoElement) {
-        videoElement = document.createElement('video');
-        videoElement.autoplay = true;
-        videoElement.playsInline = true;
-      }
-      videoElement.srcObject = mediaStream;
-
-      let previewDiv = document.getElementById('autoShootPreview');
-      if (!previewDiv) {
-        previewDiv = document.createElement('div');
-        previewDiv.id = 'autoShootPreview';
-        previewDiv.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:16px;';
-        document.body.appendChild(previewDiv);
-      }
-      const videoContainer = document.createElement('div');
-      videoContainer.style.cssText = 'width:100%; max-width:500px; background:#000; border-radius:20px; overflow:hidden;';
-      videoContainer.appendChild(videoElement);
-      previewDiv.innerHTML = '';
-      previewDiv.appendChild(videoContainer);
-
-      const cancelBtn = document.createElement('button');
-      cancelBtn.className = 'btn btn-danger';
-      cancelBtn.style.marginTop = '20px';
-      cancelBtn.textContent = '✕ Annulla';
-      cancelBtn.onclick = () => {
-        if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
-        if (animationFrame) cancelAnimationFrame(animationFrame);
-        previewDiv.remove();
-      };
-      previewDiv.appendChild(cancelBtn);
-
-      await videoElement.play();
-      canvas = document.createElement('canvas');
-      stableFrames = 0; lastFrameData = null;
+    function shoot() {
+      if (shootTimer) clearTimeout(shootTimer);
       if (animationFrame) cancelAnimationFrame(animationFrame);
-      animationFrame = requestAnimationFrame(analyzeFrame);
-      shootTimer = setTimeout(shoot, 15000);
-    } catch (err) {
-      console.error(err);
-      if (core && core.toast) core.toast("Fotocamera non accessibile");
+      if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      const blob = (d => { const a=d.split(','), m=a[0].match(/:(.*?);/)[1], b=atob(a[1]), u=new Uint8Array(b.length); for(let i=0;i<b.length;i++) u[i]=b.charCodeAt(i); return new Blob([u],{type:m}); })(dataUrl);
+      const file = new File([blob], 'autoshot.jpg', { type: 'image/jpeg' });
+
+      const prevDiv = document.getElementById('autoShootPreview');
+      if (prevDiv) prevDiv.remove();
+
+      window.__sspReceipt = window.__sspReceipt || {};
+      window.__sspReceipt.file = file;
+      window.__sspReceipt.getLastFile = () => file;
+
+      const photoPreview = $('#photoPreviewImg');
+      const wrap = $('#photoPreview');
+      if (photoPreview) { photoPreview.src = dataUrl; if (wrap) wrap.style.display = 'block'; }
+
+      if (window.__sspReceipt && typeof window.__sspReceipt.handle === 'function') {
+        window.__sspReceipt.handle(file, 'autoshoot');
+      }
+
+      if (core && core.toast) core.toast("📸 Foto scattata!");
     }
+
+    async function startAutoShoot() {
+      try {
+        if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+        mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+
+        if (!videoElement) {
+          videoElement = document.createElement('video');
+          videoElement.autoplay = true;
+          videoElement.playsInline = true;
+        }
+        videoElement.srcObject = mediaStream;
+
+        let previewDiv = document.getElementById('autoShootPreview');
+        if (!previewDiv) {
+          previewDiv = document.createElement('div');
+          previewDiv.id = 'autoShootPreview';
+          previewDiv.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:16px;';
+          document.body.appendChild(previewDiv);
+        }
+        const videoContainer = document.createElement('div');
+        videoContainer.style.cssText = 'width:100%; max-width:500px; background:#000; border-radius:20px; overflow:hidden;';
+        videoContainer.appendChild(videoElement);
+        previewDiv.innerHTML = '';
+        previewDiv.appendChild(videoContainer);
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn btn-danger';
+        cancelBtn.style.marginTop = '20px';
+        cancelBtn.textContent = '✕ Annulla';
+        cancelBtn.onclick = () => {
+          if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+          if (animationFrame) cancelAnimationFrame(animationFrame);
+          previewDiv.remove();
+        };
+        previewDiv.appendChild(cancelBtn);
+
+        await videoElement.play();
+        canvas = document.createElement('canvas');
+        stableFrames = 0; lastFrameData = null;
+        if (animationFrame) cancelAnimationFrame(animationFrame);
+        animationFrame = requestAnimationFrame(analyzeFrame);
+        shootTimer = setTimeout(shoot, 15000);
+      } catch (err) {
+        console.error(err);
+        if (core && core.toast) core.toast("Fotocamera non accessibile");
+      }
+    }
+
+    function dataURLtoBlob(dataurl) {
+      const arr = dataurl.split(',');
+      const mime = arr[0].match(/:(.*?);/)[1];
+      const bstr = atob(arr[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      while (n--) u8arr[n] = bstr.charCodeAt(n);
+      return new Blob([u8arr], { type: mime });
+    }
+
+    function checkAndAddButton() {
+      if ($('#modalAdd.show')) addAutoShootButton();
+    }
+
+    const observer = new MutationObserver(checkAndAddButton);
+    observer.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
+
+    document.addEventListener('DOMContentLoaded', () => setTimeout(checkAndAddButton, 1000));
+  } catch (e) {
+    console.warn("Patch autoscatto disabilitata a causa di errore:", e);
   }
-
-  function dataURLtoBlob(dataurl) {
-    const arr = dataurl.split(',');
-    const mime = arr[0].match(/:(.*?);/)[1];
-    const bstr = atob(arr[1]);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) u8arr[n] = bstr.charCodeAt(n);
-    return new Blob([u8arr], { type: mime });
-  }
-
-  function checkAndAddButton() {
-    if ($('#modalAdd.show')) addAutoShootButton();
-  }
-
-  const observer = new MutationObserver(checkAndAddButton);
-  observer.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
-
-  document.addEventListener('DOMContentLoaded', () => setTimeout(checkAndAddButton, 1000));
 })();
 [file content end]
