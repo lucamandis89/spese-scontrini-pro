@@ -1,1 +1,12 @@
-
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.lucamandis.spesescontrini",
+      "sha256_cert_fingerprints": [
+        "AE:C9:DB:72:B1:47:03:2D:65:7F:44:C6:D4:5D:C9:57:9C:F2:67:6E:31:F9:19:B1:DB:F0:9A:2F:CD:D2:63:97"
+      ]
+    }
+  }
+]
